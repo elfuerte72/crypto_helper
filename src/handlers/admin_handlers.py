@@ -291,57 +291,233 @@ async def handle_cancel_selection(callback_query: CallbackQuery):
     logger.info(f"Пользователь {callback_query.from_user.id} отменил выбор валютной пары")
 
 
+# Константы для валютных пар
+CURRENCY_PAIRS = {
+    # RUB пары
+    'rub_zar': {
+        'name': 'RUB/ZAR',
+        'base': 'RUB',
+        'quote': 'ZAR',
+        'description': 'Российский рубль → Южноафриканский рэнд',
+        'emoji': '🇷🇺➡️🇿🇦'
+    },
+    'rub_thb': {
+        'name': 'RUB/THB',
+        'base': 'RUB',
+        'quote': 'THB',
+        'description': 'Российский рубль → Тайский бат',
+        'emoji': '🇷🇺➡️🇹🇭'
+    },
+    'rub_aed': {
+        'name': 'RUB/AED',
+        'base': 'RUB',
+        'quote': 'AED',
+        'description': 'Российский рубль → Дирхам ОАЭ',
+        'emoji': '🇷🇺➡️🇦🇪'
+    },
+    'rub_idr': {
+        'name': 'RUB/IDR',
+        'base': 'RUB',
+        'quote': 'IDR',
+        'description': 'Российский рубль → Индонезийская рупия',
+        'emoji': '🇷🇺➡️🇮🇩'
+    },
+    # USDT пары
+    'usdt_zar': {
+        'name': 'USDT/ZAR',
+        'base': 'USDT',
+        'quote': 'ZAR',
+        'description': 'Tether USD → Южноафриканский рэнд',
+        'emoji': '💰➡️🇿🇦'
+    },
+    'usdt_thb': {
+        'name': 'USDT/THB',
+        'base': 'USDT',
+        'quote': 'THB',
+        'description': 'Tether USD → Тайский бат',
+        'emoji': '💰➡️🇹🇭'
+    },
+    'usdt_aed': {
+        'name': 'USDT/AED',
+        'base': 'USDT',
+        'quote': 'AED',
+        'description': 'Tether USD → Дирхам ОАЭ',
+        'emoji': '💰➡️🇦🇪'
+    },
+    'usdt_idr': {
+        'name': 'USDT/IDR',
+        'base': 'USDT',
+        'quote': 'IDR',
+        'description': 'Tether USD → Индонезийская рупия',
+        'emoji': '💰➡️🇮🇩'
+    },
+    # Обратные RUB пары
+    'zar_rub': {
+        'name': 'ZAR/RUB',
+        'base': 'ZAR',
+        'quote': 'RUB',
+        'description': 'Южноафриканский рэнд → Российский рубль',
+        'emoji': '🇿🇦➡️🇷🇺'
+    },
+    'thb_rub': {
+        'name': 'THB/RUB',
+        'base': 'THB',
+        'quote': 'RUB',
+        'description': 'Тайский бат → Российский рубль',
+        'emoji': '🇹🇭➡️🇷🇺'
+    },
+    'aed_rub': {
+        'name': 'AED/RUB',
+        'base': 'AED',
+        'quote': 'RUB',
+        'description': 'Дирхам ОАЭ → Российский рубль',
+        'emoji': '🇦🇪➡️🇷🇺'
+    },
+    'idr_rub': {
+        'name': 'IDR/RUB',
+        'base': 'IDR',
+        'quote': 'RUB',
+        'description': 'Индонезийская рупия → Российский рубль',
+        'emoji': '🇮🇩➡️🇷🇺'
+    },
+    # Обратные USDT пары
+    'zar_usdt': {
+        'name': 'ZAR/USDT',
+        'base': 'ZAR',
+        'quote': 'USDT',
+        'description': 'Южноафриканский рэнд → Tether USD',
+        'emoji': '🇿🇦➡️💰'
+    },
+    'thb_usdt': {
+        'name': 'THB/USDT',
+        'base': 'THB',
+        'quote': 'USDT',
+        'description': 'Тайский бат → Tether USD',
+        'emoji': '🇹🇭➡️💰'
+    },
+    'aed_usdt': {
+        'name': 'AED/USDT',
+        'base': 'AED',
+        'quote': 'USDT',
+        'description': 'Дирхам ОАЭ → Tether USD',
+        'emoji': '🇦🇪➡️💰'
+    },
+    'idr_usdt': {
+        'name': 'IDR/USDT',
+        'base': 'IDR',
+        'quote': 'USDT',
+        'description': 'Индонезийская рупия → Tether USD',
+        'emoji': '🇮🇩➡️💰'
+    }
+}
+
+
+def get_currency_pair_info(pair_callback: str) -> Optional[dict]:
+    """
+    Получение информации о валютной паре по callback данным
+    
+    Args:
+        pair_callback: Callback данные валютной пары
+        
+    Returns:
+        dict: Информация о валютной паре или None если пара не найдена
+    """
+    return CURRENCY_PAIRS.get(pair_callback)
+
+
+def is_valid_currency_pair(pair_callback: str) -> bool:
+    """
+    Проверка валидности валютной пары
+    
+    Args:
+        pair_callback: Callback данные для проверки
+        
+    Returns:
+        bool: True если пара валидна
+    """
+    return pair_callback in CURRENCY_PAIRS
+
+
 @admin_router.callback_query(lambda c: c.data and '_' in c.data and not c.data.startswith('header_'))
 async def handle_currency_pair_selection(callback_query: CallbackQuery):
     """
     Обработчик выбора валютной пары
-    Пока что только показывает выбранную пару (полная реализация будет в следующих фазах)
+    Обрабатывает все поддерживаемые валютные пары с детальной информацией
     """
     pair_callback = callback_query.data
     user_id = callback_query.from_user.id
+    username = callback_query.from_user.username or "N/A"
     
-    # Маппинг callback_data на читаемые названия пар
-    pair_names = {
-        'rub_zar': 'RUB/ZAR',
-        'rub_thb': 'RUB/THB',
-        'rub_aed': 'RUB/AED', 
-        'rub_idr': 'RUB/IDR',
-        'usdt_zar': 'USDT/ZAR',
-        'usdt_thb': 'USDT/THB',
-        'usdt_aed': 'USDT/AED',
-        'usdt_idr': 'USDT/IDR',
-        'zar_rub': 'ZAR/RUB',
-        'thb_rub': 'THB/RUB',
-        'aed_rub': 'AED/RUB',
-        'idr_rub': 'IDR/RUB',
-        'zar_usdt': 'ZAR/USDT',
-        'thb_usdt': 'THB/USDT',
-        'aed_usdt': 'AED/USDT',
-        'idr_usdt': 'IDR/USDT'
-    }
+    logger.info(
+        f"Обработка выбора валютной пары: "
+        f"user_id={user_id}, username=@{username}, pair={pair_callback}"
+    )
     
-    pair_name = pair_names.get(pair_callback, pair_callback.upper())
+    # Проверяем валидность валютной пары
+    if not is_valid_currency_pair(pair_callback):
+        logger.warning(f"Неизвестная валютная пара: {pair_callback}")
+        await callback_query.answer(
+            "❌ Неизвестная валютная пара",
+            show_alert=True
+        )
+        return
     
-    logger.info(f"Пользователь {user_id} выбрал валютную пару: {pair_name}")
+    # Получаем информацию о валютной паре
+    pair_info = get_currency_pair_info(pair_callback)
     
-    # Временное сообщение для MVP (полная реализация в следующих фазах)
+    if not pair_info:
+        logger.error(f"Не удалось получить информацию о паре: {pair_callback}")
+        await callback_query.answer(
+            "❌ Ошибка получения информации о валютной паре",
+            show_alert=True
+        )
+        return
+    
+    # Формируем детальное сообщение о выбранной паре
     response_message = (
         f"✅ <b>Валютная пара выбрана</b>\n\n"
-        f"📊 <b>Пара:</b> {pair_name}\n\n"
-        f"🚧 <b>В разработке</b>\n"
+        f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n"
+        f"📝 <i>{pair_info['description']}</i>\n\n"
+        f"💱 <b>Детали пары:</b>\n"
+        f"• Базовая валюта: <code>{pair_info['base']}</code>\n"
+        f"• Котируемая валюта: <code>{pair_info['quote']}</code>\n"
+        f"• Направление: {pair_info['base']} → {pair_info['quote']}\n\n"
+        f"🚧 <b>Статус разработки:</b>\n"
         f"Функциональность получения курса и расчета наценки "
-        f"будет реализована в следующих фазах.\n\n"
-        f"📝 <b>Следующие шаги:</b>\n"
-        f"• Интеграция с Rapira API\n"
-        f"• Запрос процентной наценки\n"
-        f"• Расчет итогового курса\n"
-        f"• Публикация в канал\n\n"
-        f"Используйте /admin_bot для повторного вызова панели."
+        f"будет реализована в следующих фазах проекта.\n\n"
+        f"📋 <b>Следующие этапы:</b>\n"
+        f"1️⃣ Интеграция с Rapira API\n"
+        f"2️⃣ Запрос процентной наценки у менеджера\n"
+        f"3️⃣ Расчет итогового курса с наценкой\n"
+        f"4️⃣ Публикация результата в канал\n\n"
+        f"🔄 Используйте /admin_bot для выбора другой пары."
     )
     
-    await callback_query.message.edit_text(
-        response_message,
-        parse_mode='HTML'
-    )
-    
-    await callback_query.answer(f"Выбрана пара: {pair_name}", show_alert=False)
+    try:
+        # Обновляем сообщение с детальной информацией
+        await callback_query.message.edit_text(
+            response_message,
+            parse_mode='HTML'
+        )
+        
+        # Отправляем подтверждение выбора
+        await callback_query.answer(
+            f"Выбрана пара: {pair_info['name']} {pair_info['emoji']}",
+            show_alert=False
+        )
+        
+        logger.info(
+            f"Успешно обработан выбор валютной пары: "
+            f"user_id={user_id}, pair={pair_info['name']}"
+        )
+        
+    except Exception as e:
+        logger.error(
+            f"Ошибка при обработке выбора валютной пары: "
+            f"user_id={user_id}, pair={pair_callback}, error={e}"
+        )
+        
+        await callback_query.answer(
+            "❌ Произошла ошибка при обработке выбора",
+            show_alert=True
+        )
