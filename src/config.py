@@ -36,6 +36,25 @@ class Config:
     
     # Supported Currency Pairs
     SUPPORTED_PAIRS = [
+        # Основные криптовалютные пары из Rapira API
+        'USDT/RUB', 'RUB/USDT',
+        'BTC/USDT', 'USDT/BTC',
+        'ETH/USDT', 'USDT/ETH',
+        'ETH/BTC', 'BTC/ETH',
+        'LTC/USDT', 'USDT/LTC',
+        'TRX/USDT', 'USDT/TRX',
+        'BNB/USDT', 'USDT/BNB',
+        'TON/USDT', 'USDT/TON',
+        'DOGE/USDT', 'USDT/DOGE',
+        'SOL/USDT', 'USDT/SOL',
+        'NOT/USDT', 'USDT/NOT',
+        'USDC/USDT', 'USDT/USDC',
+        'DAI/USDT', 'USDT/DAI',
+        'ETC/USDT', 'USDT/ETC',
+        'OP/USDT', 'USDT/OP',
+        'XMR/USDT', 'USDT/XMR',
+        
+        # Кросс-курсы для фиатных валют (будут вычисляться через USDT/RUB)
         'RUB/ZAR', 'ZAR/RUB',
         'RUB/THB', 'THB/RUB',
         'RUB/AED', 'AED/RUB',

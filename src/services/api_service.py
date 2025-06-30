@@ -2,12 +2,22 @@
 """
 API Service for Crypto Helper Bot
 Handles all external API communications, primarily with Rapira API
+
+Features:
+- Async HTTP client with connection pooling
+- Exponential backoff retry logic
+- Comprehensive error handling
+- Mock data support for development
+- Rate limiting and timeout handling
 """
 
 import asyncio
 import aiohttp
-from typing import Dict, Optional, Tuple
-from dataclasses import dataclass
+import json
+from typing import Dict, Optional, Tuple, Any
+from dataclasses import dataclass, asdict
+from datetime import datetime
+import random
 
 try:
     from ..config import config
@@ -30,16 +40,45 @@ class ExchangeRate:
     rate: float
     timestamp: str
     source: str = "rapira"
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    high_24h: Optional[float] = None
+    low_24h: Optional[float] = None
+    volume_24h: Optional[float] = None
+    change_24h: Optional[float] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        return asdict(self)
+    
+    def is_valid(self) -> bool:
+        """Check if exchange rate data is valid"""
+        return (
+            self.rate > 0 and
+            self.pair and
+            self.timestamp and
+            len(self.pair.split('/')) == 2
+        )
+
+
+class RapiraAPIError(Exception):
+    """Custom exception for Rapira API errors"""
+    def __init__(self, message: str, status_code: Optional[int] = None, response_data: Optional[Dict] = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_data = response_data
 
 
 class APIService:
-    """Service for handling external API calls"""
+    """Service for handling external API calls to Rapira API"""
     
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
         self.base_url = config.RAPIRA_API_URL
         self.api_key = config.RAPIRA_API_KEY
         self.timeout = aiohttp.ClientTimeout(total=config.API_TIMEOUT)
+        self._rate_limit_delay = 1.0  # Minimum delay between requests
+        self._last_request_time = 0.0
     
     async def __aenter__(self):
         """Async context manager entry"""
@@ -51,7 +90,7 @@ class APIService:
         await self.close_session()
     
     async def start_session(self):
-        """Initialize HTTP session"""
+        """Initialize HTTP session with connection pooling and SSL settings"""
         if not self.session:
             headers = {
                 'User-Agent': 'CryptoHelper-Bot/1.0',
@@ -62,11 +101,23 @@ class APIService:
             if self.api_key:
                 headers['Authorization'] = f'Bearer {self.api_key}'
             
+            # Connection pooling settings
+            connector = aiohttp.TCPConnector(
+                limit=100,  # Total connection pool size
+                limit_per_host=30,  # Per-host connection limit
+                ttl_dns_cache=300,  # DNS cache TTL
+                use_dns_cache=True,
+                keepalive_timeout=30,
+                enable_cleanup_closed=True
+            )
+            
             self.session = aiohttp.ClientSession(
                 headers=headers,
-                timeout=self.timeout
+                timeout=self.timeout,
+                connector=connector,
+                raise_for_status=False  # Handle status codes manually
             )
-            logger.info("API session initialized")
+            logger.info("API session initialized with connection pooling")
     
     async def close_session(self):
         """Close HTTP session"""
@@ -75,16 +126,29 @@ class APIService:
             self.session = None
             logger.info("API session closed")
     
+    async def _rate_limit(self):
+        """Implement rate limiting to avoid overwhelming the API"""
+        current_time = asyncio.get_event_loop().time()
+        time_since_last = current_time - self._last_request_time
+        
+        if time_since_last < self._rate_limit_delay:
+            sleep_time = self._rate_limit_delay - time_since_last
+            logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f}s")
+            await asyncio.sleep(sleep_time)
+        
+        self._last_request_time = asyncio.get_event_loop().time()
+    
     async def _make_request(
         self,
         method: str,
         endpoint: str,
         params: Optional[Dict] = None,
         data: Optional[Dict] = None,
-        retry_count: int = None
-    ) -> Tuple[bool, Optional[Dict]]:
+        retry_count: int = None,
+        timeout: Optional[float] = None
+    ) -> Tuple[bool, Optional[Dict], Optional[int]]:
         """
-        Make HTTP request with retry logic
+        Make HTTP request with retry logic and comprehensive error handling
         
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -92,63 +156,178 @@ class APIService:
             params: Query parameters
             data: Request body data
             retry_count: Number of retries
+            timeout: Request timeout override
         
         Returns:
-            Tuple of (success, response_data)
+            Tuple of (success, response_data, status_code)
         """
         if not self.session:
             await self.start_session()
         
+        await self._rate_limit()
+        
         retry_count = retry_count or config.API_RETRY_COUNT
-        url = f"{self.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        
+        # Если endpoint пустой, используем base_url напрямую
+        if not endpoint or endpoint == '':
+            url = self.base_url
+        else:
+            url = f"{self.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        
+        # Custom timeout for this request
+        request_timeout = aiohttp.ClientTimeout(total=timeout) if timeout else self.timeout
+        
+        last_exception = None
         
         for attempt in range(retry_count + 1):
             try:
-                logger.debug(f"API request: {method} {url} (attempt {attempt + 1})")
+                logger.debug(f"API request: {method} {url} (attempt {attempt + 1}/{retry_count + 1})")
                 
                 async with self.session.request(
                     method=method,
                     url=url,
                     params=params,
-                    json=data
+                    json=data,
+                    timeout=request_timeout
                 ) as response:
                     
-                    if response.status == 200:
-                        response_data = await response.json()
-                        logger.debug(f"API success: {response.status}")
-                        return True, response_data
+                    status_code = response.status
                     
-                    elif response.status in [429, 500, 502, 503, 504]:
-                        # Retryable errors
-                        logger.warning(f"API error {response.status}, retrying...")
+                    # Success
+                    if 200 <= status_code < 300:
+                        try:
+                            response_data = await response.json()
+                            logger.debug(f"API success: {status_code}")
+                            return True, response_data, status_code
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Invalid JSON response: {e}")
+                            if attempt < retry_count:
+                                await self._exponential_backoff(attempt)
+                                continue
+                            return False, None, status_code
+                    
+                    # Rate limiting
+                    elif status_code == 429:
+                        retry_after = response.headers.get('Retry-After')
+                        if retry_after:
+                            try:
+                                sleep_time = float(retry_after)
+                                logger.warning(f"Rate limited, sleeping for {sleep_time}s")
+                                await asyncio.sleep(sleep_time)
+                            except ValueError:
+                                await self._exponential_backoff(attempt)
+                        else:
+                            await self._exponential_backoff(attempt)
+                        
                         if attempt < retry_count:
-                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
                             continue
                     
-                    else:
-                        # Non-retryable errors
+                    # Server errors (retryable)
+                    elif status_code in [500, 502, 503, 504]:
                         error_text = await response.text()
-                        logger.error(f"API error {response.status}: {error_text}")
-                        return False, None
+                        logger.warning(f"Server error {status_code}: {error_text}")
+                        if attempt < retry_count:
+                            await self._exponential_backoff(attempt)
+                            continue
+                    
+                    # Client errors (non-retryable)
+                    elif 400 <= status_code < 500:
+                        error_text = await response.text()
+                        logger.error(f"Client error {status_code}: {error_text}")
+                        try:
+                            error_data = await response.json()
+                        except:
+                            error_data = {"error": error_text}
+                        return False, error_data, status_code
+                    
+                    # Other errors
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Unexpected status {status_code}: {error_text}")
+                        if attempt < retry_count:
+                            await self._exponential_backoff(attempt)
+                            continue
+                        return False, None, status_code
             
-            except asyncio.TimeoutError:
-                logger.warning(f"API timeout (attempt {attempt + 1})")
+            except asyncio.TimeoutError as e:
+                last_exception = e
+                logger.warning(f"Request timeout (attempt {attempt + 1}/{retry_count + 1})")
                 if attempt < retry_count:
-                    await asyncio.sleep(2 ** attempt)
+                    await self._exponential_backoff(attempt)
+                    continue
+            
+            except aiohttp.ClientError as e:
+                last_exception = e
+                logger.warning(f"Client error: {e} (attempt {attempt + 1}/{retry_count + 1})")
+                if attempt < retry_count:
+                    await self._exponential_backoff(attempt)
                     continue
             
             except Exception as e:
-                logger.error(f"API request error: {e}")
+                last_exception = e
+                logger.error(f"Unexpected error: {e} (attempt {attempt + 1}/{retry_count + 1})")
                 if attempt < retry_count:
-                    await asyncio.sleep(2 ** attempt)
+                    await self._exponential_backoff(attempt)
                     continue
         
-        logger.error(f"API request failed after {retry_count + 1} attempts")
-        return False, None
+        logger.error(f"API request failed after {retry_count + 1} attempts. Last error: {last_exception}")
+        return False, None, None
+    
+    async def _exponential_backoff(self, attempt: int, max_delay: float = 60.0):
+        """Implement exponential backoff with jitter"""
+        base_delay = min(2 ** attempt, max_delay)
+        jitter = random.uniform(0.1, 0.5) * base_delay
+        sleep_time = base_delay + jitter
+        
+        logger.debug(f"Exponential backoff: sleeping for {sleep_time:.2f}s")
+        await asyncio.sleep(sleep_time)
+    
+    async def get_all_rates(self) -> Optional[Dict[str, ExchangeRate]]:
+        """
+        Get all available exchange rates from Rapira API
+        
+        Returns:
+            Dictionary mapping symbols to ExchangeRate objects or None if failed
+        """
+        logger.info("Getting all exchange rates from Rapira API")
+        
+        # For MVP - use mock implementation in debug mode
+        if config.DEBUG_MODE:
+            return await self._get_mock_all_rates()
+        
+        # Real API call to Rapira - получаем все курсы одним запросом
+        try:
+            success, data, status_code = await self._make_request(
+                method='GET',
+                endpoint='',  # Используем базовый URL напрямую
+                params=None
+            )
+            
+            if success and data:
+                return self._parse_all_rates_response(data)
+            
+            elif status_code == 404:
+                logger.error("Rapira API endpoint not found")
+                raise RapiraAPIError("API endpoint not found", status_code)
+            
+            elif status_code and 400 <= status_code < 500:
+                error_msg = data.get('message', 'Client error') if data else 'Client error'
+                logger.error(f"Client error: {error_msg}")
+                raise RapiraAPIError(f"Client error: {error_msg}", status_code, data)
+            
+            else:
+                logger.error("Failed to get exchange rates")
+                raise RapiraAPIError("Failed to get exchange rates")
+                
+        except RapiraAPIError:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error getting rates: {e}")
+            raise RapiraAPIError(f"Unexpected error: {str(e)}")
     
     async def get_exchange_rate(self, pair: str) -> Optional[ExchangeRate]:
         """
-        Get exchange rate for a currency pair
+        Get exchange rate for a specific currency pair
         
         Args:
             pair: Currency pair (e.g., 'RUB/ZAR')
@@ -161,102 +340,577 @@ class APIService:
         # Validate pair
         if pair not in config.SUPPORTED_PAIRS:
             logger.error(f"Unsupported currency pair: {pair}")
-            return None
+            raise RapiraAPIError(f"Unsupported currency pair: {pair}")
         
-        # For MVP - mock implementation since we don't have real Rapira API access
-        if config.DEBUG_MODE:
-            return await self._get_mock_rate(pair)
+        # Получаем все курсы и ищем нужный
+        try:
+            all_rates = await self.get_all_rates()
+            if not all_rates:
+                raise RapiraAPIError("Failed to get exchange rates")
+            
+            # Ищем курс для запрашиваемой пары
+            rate = self._find_rate_for_pair(pair, all_rates)
+            if rate:
+                return rate
+            
+            # Если прямого курса нет, пытаемся вычислить через базовые валюты
+            calculated_rate = await self._calculate_cross_rate(pair, all_rates)
+            if calculated_rate:
+                return calculated_rate
+            
+            logger.error(f"Exchange rate for {pair} not found")
+            raise RapiraAPIError(f"Exchange rate for {pair} not found")
+                
+        except RapiraAPIError:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error getting rate for {pair}: {e}")
+            raise RapiraAPIError(f"Unexpected error: {str(e)}")
+    
+    def _parse_all_rates_response(self, data: Dict) -> Dict[str, ExchangeRate]:
+        """
+        Parse Rapira API response with all rates into dictionary of ExchangeRate objects
         
-        # Real API call structure (to be implemented when API is available)
-        success, data = await self._make_request(
-            method='GET',
-            endpoint=f'/rates/{pair.replace("/", "")}',
-            params={'format': 'json'}
-        )
+        Args:
+            data: API response data from Rapira
         
-        if success and data:
-            try:
-                return ExchangeRate(
-                    pair=pair,
-                    rate=float(data.get('rate', 0)),
-                    timestamp=data.get('timestamp', ''),
-                    source='rapira'
-                )
-            except (ValueError, KeyError) as e:
-                logger.error(f"Error parsing API response: {e}")
+        Returns:
+            Dictionary mapping symbols to ExchangeRate objects
+        """
+        try:
+            rates = {}
+            
+            # Проверяем структуру ответа Rapira API
+            if 'data' not in data or not isinstance(data['data'], list):
+                raise ValueError("Invalid Rapira API response format")
+            
+            for item in data['data']:
+                if not isinstance(item, dict) or 'symbol' not in item:
+                    continue
+                
+                symbol = item['symbol']
+                
+                # Парсим данные курса
+                try:
+                    # Определяем основной курс (используем close, если нет - askPrice)
+                    main_rate = item.get('close')
+                    if main_rate is None or main_rate == 0:
+                        main_rate = item.get('askPrice')
+                    if main_rate is None or main_rate == 0:
+                        main_rate = item.get('bidPrice')
+                    
+                    if main_rate is None or main_rate == 0:
+                        logger.warning(f"No valid rate found for {symbol}")
+                        continue
+                    
+                    rate_data = {
+                        'rate': float(main_rate),
+                        'timestamp': datetime.now().isoformat(),  # Rapira не предоставляет timestamp
+                        'bid': float(item['bidPrice']) if 'bidPrice' in item and item['bidPrice'] is not None else None,
+                        'ask': float(item['askPrice']) if 'askPrice' in item and item['askPrice'] is not None else None,
+                        'high_24h': float(item['high']) if 'high' in item and item['high'] is not None else None,
+                        'low_24h': float(item['low']) if 'low' in item and item['low'] is not None else None,
+                        'change_24h': float(item['chg']) * 100 if 'chg' in item and item['chg'] is not None else None,  # Конвертируем в проценты
+                    }
+                    
+                    # Создаем объект ExchangeRate
+                    exchange_rate = ExchangeRate(
+                        pair=symbol,  # Оставляем символ как есть
+                        source='rapira',
+                        **rate_data
+                    )
+                    
+                    if exchange_rate.is_valid():
+                        rates[symbol] = exchange_rate
+                        logger.debug(f"Parsed rate for {symbol}: {exchange_rate.rate}")
+                    else:
+                        logger.warning(f"Invalid rate data for {symbol}: rate={exchange_rate.rate}, pair={exchange_rate.pair}")
+                        
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.warning(f"Error parsing rate for {symbol}: {e}")
+                    continue
+            
+            logger.info(f"Successfully parsed {len(rates)} exchange rates")
+            return rates
+            
+        except (ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error parsing Rapira API response: {e}")
+            logger.debug(f"Response data: {data}")
+            raise RapiraAPIError(f"Invalid API response format: {str(e)}")
+    
+    def _find_rate_for_pair(self, pair: str, all_rates: Dict[str, ExchangeRate]) -> Optional[ExchangeRate]:
+        """
+        Find exchange rate for a specific pair from all rates
+        
+        Args:
+            pair: Currency pair (e.g., 'RUB/ZAR')
+            all_rates: Dictionary of all available rates
+        
+        Returns:
+            ExchangeRate object or None if not found
+        """
+        # Проверяем разные форматы символов
+        possible_symbols = [
+            pair,  # RUB/ZAR
+            pair.replace('/', ''),  # RUBZAR
+            pair.replace('/', '_'),  # RUB_ZAR
+            pair.replace('/', '-'),  # RUB-ZAR
+        ]
+        
+        for symbol in possible_symbols:
+            if symbol in all_rates:
+                rate = all_rates[symbol]
+                # Обновляем pair в правильном формате
+                rate.pair = pair
+                return rate
         
         return None
     
+    async def _calculate_cross_rate(self, pair: str, all_rates: Dict[str, ExchangeRate]) -> Optional[ExchangeRate]:
+        """
+        Calculate cross rate for currency pair using base currencies (USD, USDT, RUB)
+        
+        Args:
+            pair: Currency pair (e.g., 'RUB/ZAR')
+            all_rates: Dictionary of all available rates
+        
+        Returns:
+            Calculated ExchangeRate object or None if cannot calculate
+        """
+        try:
+            base_currency, quote_currency = pair.split('/')
+            
+            # Попытка вычислить через USD
+            usd_base_rate = self._find_usd_rate(base_currency, all_rates)
+            usd_quote_rate = self._find_usd_rate(quote_currency, all_rates)
+            
+            if usd_base_rate and usd_quote_rate:
+                # Вычисляем кросс-курс через USD
+                cross_rate = usd_base_rate / usd_quote_rate
+                
+                logger.debug(f"Calculated {pair} rate via USD: {cross_rate}")
+                
+                return ExchangeRate(
+                    pair=pair,
+                    rate=round(cross_rate, 8),
+                    timestamp=datetime.now().isoformat(),
+                    source='calculated_via_usd'
+                )
+            
+            # Попытка вычислить через USDT
+            usdt_base_rate = self._find_usdt_rate(base_currency, all_rates)
+            usdt_quote_rate = self._find_usdt_rate(quote_currency, all_rates)
+            
+            if usdt_base_rate and usdt_quote_rate:
+                # Вычисляем кросс-курс через USDT
+                cross_rate = usdt_base_rate / usdt_quote_rate
+                
+                logger.debug(f"Calculated {pair} rate via USDT: {cross_rate}")
+                
+                return ExchangeRate(
+                    pair=pair,
+                    rate=round(cross_rate, 8),
+                    timestamp=datetime.now().isoformat(),
+                    source='calculated_via_usdt'
+                )
+            
+            logger.warning(f"Cannot calculate cross rate for {pair}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error calculating cross rate for {pair}: {e}")
+            return None
+    
+    def _find_usd_rate(self, currency: str, all_rates: Dict[str, ExchangeRate]) -> Optional[float]:
+        """Find USD rate for a currency"""
+        # Ищем прямой курс к USD
+        usd_symbols = [f"{currency}/USD", f"{currency}USD", f"USD/{currency}", f"USD{currency}"]
+        
+        for symbol in usd_symbols:
+            if symbol in all_rates:
+                rate = all_rates[symbol].rate
+                # Если это обратный курс (USD/XXX), инвертируем
+                if symbol.startswith('USD'):
+                    return 1.0 / rate if rate != 0 else None
+                return rate
+        
+        return None
+    
+    def _find_usdt_rate(self, currency: str, all_rates: Dict[str, ExchangeRate]) -> Optional[float]:
+        """Find USDT rate for a currency"""
+        # Ищем прямой курс к USDT
+        usdt_symbols = [f"{currency}/USDT", f"{currency}USDT", f"USDT/{currency}", f"USDT{currency}"]
+        
+        for symbol in usdt_symbols:
+            if symbol in all_rates:
+                rate = all_rates[symbol].rate
+                # Если это обратный курс (USDT/XXX), инвертируем
+                if symbol.startswith('USDT'):
+                    return 1.0 / rate if rate != 0 else None
+                return rate
+        
+        return None
+    
+    def _parse_rate_response(self, pair: str, data: Dict) -> ExchangeRate:
+        """
+        Parse API response into ExchangeRate object (legacy method for single rate)
+        
+        Args:
+            pair: Currency pair
+            data: API response data
+        
+        Returns:
+            ExchangeRate object
+        """
+        try:
+            # Handle different possible response formats
+            if 'rate' in data:
+                # Simple format
+                rate_data = {
+                    'rate': float(data['rate']),
+                    'timestamp': data.get('timestamp', datetime.now().isoformat()),
+                    'bid': float(data['bid']) if 'bid' in data else None,
+                    'ask': float(data['ask']) if 'ask' in data else None,
+                }
+            elif 'data' in data and isinstance(data['data'], dict):
+                # Nested format
+                inner_data = data['data']
+                rate_data = {
+                    'rate': float(inner_data['rate']),
+                    'timestamp': inner_data.get('timestamp', datetime.now().isoformat()),
+                    'bid': float(inner_data['bid']) if 'bid' in inner_data else None,
+                    'ask': float(inner_data['ask']) if 'ask' in inner_data else None,
+                }
+            else:
+                raise ValueError("Invalid response format")
+            
+            # Add optional 24h statistics if available
+            stats_fields = ['high_24h', 'low_24h', 'volume_24h', 'change_24h']
+            for field in stats_fields:
+                if field in data:
+                    try:
+                        rate_data[field] = float(data[field])
+                    except (ValueError, TypeError):
+                        pass
+            
+            exchange_rate = ExchangeRate(
+                pair=pair,
+                source='rapira',
+                **rate_data
+            )
+            
+            if not exchange_rate.is_valid():
+                raise ValueError("Invalid exchange rate data")
+            
+            logger.debug(f"Parsed exchange rate for {pair}: {exchange_rate.rate}")
+            return exchange_rate
+            
+        except (ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error parsing API response for {pair}: {e}")
+            logger.debug(f"Response data: {data}")
+            raise RapiraAPIError(f"Invalid API response format: {str(e)}")
+    
+    async def _get_mock_all_rates(self) -> Dict[str, ExchangeRate]:
+        """
+        Generate realistic mock exchange rates for all supported pairs
+        
+        Returns:
+            Dictionary mapping symbols to mock ExchangeRate objects
+        """
+        # Simulate API delay
+        await asyncio.sleep(random.uniform(0.2, 0.8))
+        
+        # Mock rates with realistic bid/ask spreads
+        mock_data = {
+            'USDT/RUB': {'rate': 79.3, 'spread': 0.5},
+            'BTC/USDT': {'rate': 107375, 'spread': 500},
+            'ETH/USDT': {'rate': 2491.7, 'spread': 10},
+            'NOT/USDT': {'rate': 0.001844, 'spread': 0.00002},
+            'ETH/BTC': {'rate': 0.0232, 'spread': 0.0001},
+            'USDC/USDT': {'rate': 0.9994, 'spread': 0.001},
+            'LTC/USDT': {'rate': 86.05, 'spread': 0.5},
+            'TRX/USDT': {'rate': 0.2788, 'spread': 0.002},
+            'BNB/USDT': {'rate': 657.23, 'spread': 2},
+            'DAI/USDT': {'rate': 0.9999, 'spread': 0.0005},
+            'TON/USDT': {'rate': 2.9381, 'spread': 0.01},
+            'DOGE/USDT': {'rate': 0.1645, 'spread': 0.001},
+            'ETC/USDT': {'rate': 16.547, 'spread': 0.1},
+            'OP/USDT': {'rate': 0.5702, 'spread': 0.005},
+            'XMR/USDT': {'rate': 313.55, 'spread': 3},
+            'SOL/USDT': {'rate': 155.88, 'spread': 1},
+            # Добавляем кросс-курсы для поддерживаемых пар
+            'RUB/ZAR': {'rate': 0.18, 'spread': 0.002},
+            'ZAR/RUB': {'rate': 5.56, 'spread': 0.05},
+            'RUB/THB': {'rate': 0.35, 'spread': 0.003},
+            'THB/RUB': {'rate': 2.86, 'spread': 0.03},
+            'RUB/AED': {'rate': 0.037, 'spread': 0.0003},
+            'AED/RUB': {'rate': 27.03, 'spread': 0.25},
+            'RUB/IDR': {'rate': 156.78, 'spread': 1.5},
+            'IDR/RUB': {'rate': 0.0064, 'spread': 0.00006},
+            'USDT/ZAR': {'rate': 18.45, 'spread': 0.15},
+            'ZAR/USDT': {'rate': 0.054, 'spread': 0.0005},
+            'USDT/THB': {'rate': 35.67, 'spread': 0.30},
+            'THB/USDT': {'rate': 0.028, 'spread': 0.0003},
+            'USDT/AED': {'rate': 3.67, 'spread': 0.03},
+            'AED/USDT': {'rate': 0.27, 'spread': 0.003},
+            'USDT/IDR': {'rate': 15678.90, 'spread': 150},
+            'IDR/USDT': {'rate': 0.000064, 'spread': 0.000001}
+        }
+        
+        rates = {}
+        
+        for symbol, base_data in mock_data.items():
+            base_rate = base_data['rate']
+            spread = base_data['spread']
+            
+            # Add market volatility (±3%)
+            market_variation = random.uniform(-0.03, 0.03)
+            current_rate = base_rate * (1 + market_variation)
+            
+            # Calculate bid/ask with spread
+            half_spread = spread / 2
+            bid = current_rate - half_spread
+            ask = current_rate + half_spread
+            
+            # Generate 24h statistics
+            high_24h = current_rate * random.uniform(1.01, 1.05)
+            low_24h = current_rate * random.uniform(0.95, 0.99)
+            volume_24h = random.uniform(10000, 100000)
+            change_24h = random.uniform(-5.0, 5.0)
+            
+            exchange_rate = ExchangeRate(
+                pair=symbol,
+                rate=round(current_rate, 8),
+                bid=round(bid, 8),
+                ask=round(ask, 8),
+                high_24h=round(high_24h, 8),
+                low_24h=round(low_24h, 8),
+                volume_24h=round(volume_24h, 2),
+                change_24h=round(change_24h, 2),
+                timestamp=datetime.now().isoformat(),
+                source='mock'
+            )
+            
+            rates[symbol] = exchange_rate
+            logger.debug(f"Generated mock rate for {symbol}: {current_rate:.6f}")
+        
+        logger.info(f"Generated {len(rates)} mock exchange rates")
+        return rates
+    
     async def _get_mock_rate(self, pair: str) -> ExchangeRate:
         """
-        Generate mock exchange rate for development/testing
+        Generate realistic mock exchange rate for development/testing (legacy method)
         
         Args:
             pair: Currency pair
         
         Returns:
-            Mock ExchangeRate object
+            Mock ExchangeRate object with realistic data
         """
-        from datetime import datetime
-        import random
+        # Получаем все mock курсы и возвращаем нужный
+        all_rates = await self._get_mock_all_rates()
         
-        # Mock rates for different pairs
-        mock_rates = {
-            'RUB/ZAR': 0.18,
-            'ZAR/RUB': 5.56,
-            'RUB/THB': 0.35,
-            'THB/RUB': 2.86,
-            'RUB/AED': 0.037,
-            'AED/RUB': 27.03,
-            'RUB/IDR': 156.78,
-            'IDR/RUB': 0.0064,
-            'USDT/ZAR': 18.45,
-            'ZAR/USDT': 0.054,
-            'USDT/THB': 35.67,
-            'THB/USDT': 0.028,
-            'USDT/AED': 3.67,
-            'AED/USDT': 0.27,
-            'USDT/IDR': 15678.90,
-            'IDR/USDT': 0.000064
-        }
+        # Ищем курс для запрашиваемой пары
+        rate = self._find_rate_for_pair(pair, all_rates)
+        if rate:
+            return rate
         
-        base_rate = mock_rates.get(pair, 1.0)
-        # Add small random variation (±2%)
-        variation = random.uniform(-0.02, 0.02)
-        final_rate = base_rate * (1 + variation)
+        # Если не нашли, генерируем базовый mock
+        logger.debug(f"Generating fallback mock rate for {pair}")
         
-        logger.debug(f"Generated mock rate for {pair}: {final_rate}")
+        # Simulate API delay
+        await asyncio.sleep(random.uniform(0.1, 0.3))
+        
+        base_rate = 1.0
+        spread = 0.01
+        
+        # Add market volatility (±3%)
+        market_variation = random.uniform(-0.03, 0.03)
+        current_rate = base_rate * (1 + market_variation)
+        
+        # Calculate bid/ask with spread
+        half_spread = spread / 2
+        bid = current_rate - half_spread
+        ask = current_rate + half_spread
+        
+        # Generate 24h statistics
+        high_24h = current_rate * random.uniform(1.01, 1.05)
+        low_24h = current_rate * random.uniform(0.95, 0.99)
+        volume_24h = random.uniform(10000, 100000)
+        change_24h = random.uniform(-5.0, 5.0)
+        
+        logger.debug(f"Generated fallback mock rate for {pair}: {current_rate:.6f}")
         
         return ExchangeRate(
             pair=pair,
-            rate=round(final_rate, 6),
+            rate=round(current_rate, 8),
+            bid=round(bid, 8),
+            ask=round(ask, 8),
+            high_24h=round(high_24h, 8),
+            low_24h=round(low_24h, 8),
+            volume_24h=round(volume_24h, 2),
+            change_24h=round(change_24h, 2),
             timestamp=datetime.now().isoformat(),
-            source='mock'
+            source='mock_fallback'
         )
     
-    async def health_check(self) -> bool:
+    async def get_multiple_rates(self, pairs: list[str]) -> Dict[str, Optional[ExchangeRate]]:
         """
-        Check API service health
+        Get exchange rates for multiple currency pairs concurrently
+        
+        Args:
+            pairs: List of currency pairs
         
         Returns:
-            True if service is healthy, False otherwise
+            Dictionary mapping pairs to ExchangeRate objects or None
         """
-        logger.info("Performing API health check")
+        logger.info(f"Getting exchange rates for {len(pairs)} pairs")
+        
+        # Create tasks for concurrent requests
+        tasks = []
+        for pair in pairs:
+            task = asyncio.create_task(self._get_single_rate_safe(pair))
+            tasks.append((pair, task))
+        
+        # Wait for all tasks to complete
+        results = {}
+        for pair, task in tasks:
+            try:
+                results[pair] = await task
+            except Exception as e:
+                logger.error(f"Error getting rate for {pair}: {e}")
+                results[pair] = None
+        
+        successful_count = sum(1 for rate in results.values() if rate is not None)
+        logger.info(f"Successfully retrieved {successful_count}/{len(pairs)} exchange rates")
+        
+        return results
+    
+    async def _get_single_rate_safe(self, pair: str) -> Optional[ExchangeRate]:
+        """Safely get a single exchange rate without raising exceptions"""
+        try:
+            return await self.get_exchange_rate(pair)
+        except Exception as e:
+            logger.error(f"Error getting rate for {pair}: {e}")
+            return None
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Check API service health with detailed information
+        
+        Returns:
+            Dictionary with health check results
+        """
+        logger.info("Performing comprehensive API health check")
+        
+        health_data = {
+            'timestamp': datetime.now().isoformat(),
+            'service': 'rapira_api',
+            'status': 'unknown',
+            'response_time_ms': None,
+            'debug_mode': config.DEBUG_MODE,
+            'api_url': self.base_url,
+            'has_api_key': bool(self.api_key),
+            'session_active': self.session is not None and not self.session.closed
+        }
         
         if config.DEBUG_MODE:
-            # In debug mode, always return healthy
+            # In debug mode, perform mock health check
+            await asyncio.sleep(0.1)  # Simulate network delay
+            health_data.update({
+                'status': 'healthy',
+                'response_time_ms': 100,
+                'message': 'Mock health check (debug mode)',
+                'rates_available': len(config.SUPPORTED_PAIRS)
+            })
             logger.info("Health check: OK (debug mode)")
-            return True
+            return health_data
         
-        success, data = await self._make_request(
-            method='GET',
-            endpoint='/health',
-            retry_count=1
-        )
+        # Real health check - проверяем основной эндпоинт
+        start_time = asyncio.get_event_loop().time()
+        try:
+            success, data, status_code = await self._make_request(
+                method='GET',
+                endpoint='',  # Используем базовый URL напрямую
+                retry_count=1,
+                timeout=10.0  # Short timeout for health check
+            )
+            
+            end_time = asyncio.get_event_loop().time()
+            response_time = (end_time - start_time) * 1000
+            
+            health_data['response_time_ms'] = round(response_time, 2)
+            health_data['status_code'] = status_code
+            
+            if success and data:
+                # Проверяем структуру ответа Rapira API
+                if ('data' in data and isinstance(data['data'], list) and len(data['data']) > 0):
+                    rates_count = len(data['data'])
+                    health_data.update({
+                        'status': 'healthy',
+                        'message': f'API is responding normally with {rates_count} rates',
+                        'rates_available': rates_count
+                    })
+                else:
+                    health_data.update({
+                        'status': 'degraded',
+                        'message': f'API returned unexpected response format',
+                        'response_preview': str(data)[:200] if data else None
+                    })
+            else:
+                health_data.update({
+                    'status': 'unhealthy',
+                    'message': f'API request failed with status {status_code}'
+                })
+                
+        except Exception as e:
+            end_time = asyncio.get_event_loop().time()
+            response_time = (end_time - start_time) * 1000
+            health_data.update({
+                'response_time_ms': round(response_time, 2),
+                'status': 'unhealthy',
+                'message': f'Health check failed: {str(e)}',
+                'error': str(e)
+            })
         
-        result = success and data and data.get('status') == 'ok'
-        logger.info(f"Health check: {'OK' if result else 'FAILED'}")
-        return result
+        logger.info(f"Health check completed: {health_data['status']} ({health_data.get('response_time_ms', 'N/A')}ms)")
+        return health_data
+    
+    async def get_supported_pairs(self) -> Optional[list[str]]:
+        """
+        Get list of supported currency pairs from API
+        
+        Returns:
+            List of supported pairs or None if failed
+        """
+        logger.info("Getting supported currency pairs")
+        
+        if config.DEBUG_MODE:
+            # Return configured pairs in debug mode
+            return config.SUPPORTED_PAIRS.copy()
+        
+        try:
+            success, data, status_code = await self._make_request(
+                method='GET',
+                endpoint='/pairs',
+                params={'format': 'json'}
+            )
+            
+            if success and data:
+                if isinstance(data, list):
+                    return data
+                elif isinstance(data, dict) and 'pairs' in data:
+                    return data['pairs']
+                else:
+                    logger.warning(f"Unexpected pairs response format: {data}")
+                    return None
+            else:
+                logger.error(f"Failed to get supported pairs: status {status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting supported pairs: {e}")
+            return None
 
 
 # Global API service instance
