@@ -1,0 +1,15 @@
+# Crypto Helper Telegram Bot - MVP Requirements
+# Python 3.11+
+
+# Telegram Bot Framework
+aiogram==3.10.0
+
+# HTTP Client for API requests
+aiohttp==3.9.1
+
+# Configuration management
+python-dotenv==1.0.0
+
+# Development dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
