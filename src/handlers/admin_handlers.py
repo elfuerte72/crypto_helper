@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Обработчики административных команд для Crypto Helper Bot
-Включает проверку прав администратора и управление валютными парами
+Упрощенная версия - только команда /admin_bot и выбор валютных пар
 """
 
 import logging
@@ -13,6 +13,11 @@ from aiogram.filters import Command
 from aiogram.enums import ChatMemberStatus
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
+
+# Импорты из новых модулей
+from .currency_pairs import get_currency_pair_info, is_valid_currency_pair
+from .keyboards import create_currency_pairs_keyboard
+from .formatters import MessageFormatter
 
 try:
     from ..config import config
@@ -85,48 +90,6 @@ async def check_admin_permissions(bot: Bot, chat_id: int, user_id: int) -> bool:
         raise AdminPermissionError(f"Ошибка при проверке прав: {e}")
 
 
-def create_currency_pairs_keyboard() -> InlineKeyboardMarkup:
-    """
-    Создание inline клавиатуры для выбора валютных пар
-    Упрощенная версия с только USDT парами
-    
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с валютными парами
-    """
-    
-    # Все валютные пары в одном списке (только USDT)
-    all_pairs = [
-        ('USDT/ZAR', 'usdt_zar'),
-        ('USDT/THB', 'usdt_thb'),
-        ('USDT/AED', 'usdt_aed'), 
-        ('USDT/IDR', 'usdt_idr'),
-        ('USDT/RUB', 'usdt_rub'),
-        ('ZAR/USDT', 'zar_usdt'),
-        ('THB/USDT', 'thb_usdt'),
-        ('AED/USDT', 'aed_usdt'),
-        ('IDR/USDT', 'idr_usdt'),
-        ('RUB/USDT', 'rub_usdt')
-    ]
-    
-    # Создаем кнопки по 2 в ряд
-    keyboard = []
-    
-    for i in range(0, len(all_pairs), 2):
-        row = []
-        for j in range(2):
-            if i + j < len(all_pairs):
-                pair_name, callback_data = all_pairs[i + j]
-                row.append(InlineKeyboardButton(text=pair_name, callback_data=callback_data))
-        keyboard.append(row)
-    
-    # Добавляем кнопку отмены
-    keyboard.append([
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_selection")
-    ])
-    
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-
 @admin_router.message(Command('admin_bot'))
 async def admin_bot_command(message: Message, bot: Bot):
     """
@@ -189,24 +152,14 @@ async def admin_bot_command(message: Message, bot: Bot):
             return
     
     try:
-        
         # Создаем клавиатуру для выбора валютных пар
         keyboard = create_currency_pairs_keyboard()
         
         # Отправляем сообщение с панелью управления
         debug_status = "🔧 Режим разработки" if config.DEBUG_MODE else "🔒 Проверка прав пройдена"
         
-        admin_message = (
-            f"🔧 <b>Административная панель</b>\n\n"
-            f"{debug_status}\n\n"
-            f"Добро пожаловать в панель управления Crypto Helper Bot!\n\n"
-            f"📊 <b>Выберите валютную пару для получения курса:</b>\n\n"
-            f"• Выберите нужную валютную пару из списка ниже\n"
-            f"• Укажите сумму для расчета\n"
-            f"• Укажите процентную наценку\n"
-            f"• Получите актуальный курс с наценкой\n\n"
-            f"💡 <i>Курсы обновляются в реальном времени через Rapira API</i>"
-        )
+        welcome_message = MessageFormatter.format_welcome_message()
+        admin_message = f"{debug_status}\n\n{welcome_message}"
         
         await message.reply(
             admin_message,
@@ -225,137 +178,29 @@ async def admin_bot_command(message: Message, bot: Bot):
         logger.error(f"Неожиданная ошибка при отображении панели: {e}")
 
 
-
-
-
 @admin_router.callback_query(lambda c: c.data == 'cancel_selection')
 async def handle_cancel_selection(callback_query: CallbackQuery):
     """
     Обработчик отмены выбора валютной пары
     """
-    await callback_query.message.edit_text(
-        "❌ <b>Операция отменена</b>\n\n"
-        "Выбор валютной пары отменен.\n"
-        "Используйте /admin_bot для повторного вызова панели.",
-        parse_mode='HTML'
-    )
+    cancel_message = MessageFormatter.format_cancel_message("Операция")
+    await callback_query.message.edit_text(cancel_message, parse_mode='HTML')
     
     await callback_query.answer("Операция отменена", show_alert=False)
     logger.info(f"Пользователь {callback_query.from_user.id} отменил выбор валютной пары")
 
 
-# Константы для валютных пар (только USDT пары)
-CURRENCY_PAIRS = {
-    # USDT пары (USDT → другие валюты)
-    'usdt_zar': {
-        'name': 'USDT/ZAR',
-        'base': 'USDT',
-        'quote': 'ZAR',
-        'description': 'Tether USD → Южноафриканский рэнд',
-        'emoji': '💰➡️🇿🇦'
-    },
-    'usdt_thb': {
-        'name': 'USDT/THB',
-        'base': 'USDT',
-        'quote': 'THB',
-        'description': 'Tether USD → Тайский бат',
-        'emoji': '💰➡️🇹🇭'
-    },
-    'usdt_aed': {
-        'name': 'USDT/AED',
-        'base': 'USDT',
-        'quote': 'AED',
-        'description': 'Tether USD → Дирхам ОАЭ',
-        'emoji': '💰➡️🇦🇪'
-    },
-    'usdt_idr': {
-        'name': 'USDT/IDR',
-        'base': 'USDT',
-        'quote': 'IDR',
-        'description': 'Tether USD → Индонезийская рупия',
-        'emoji': '💰➡️🇮🇩'
-    },
-    'usdt_rub': {
-        'name': 'USDT/RUB',
-        'base': 'USDT',
-        'quote': 'RUB',
-        'description': 'Tether USD → Российский рубль',
-        'emoji': '💰➡️🇷🇺'
-    },
-    # Обратные USDT пары (другие валюты → USDT)
-    'zar_usdt': {
-        'name': 'ZAR/USDT',
-        'base': 'ZAR',
-        'quote': 'USDT',
-        'description': 'Южноафриканский рэнд → Tether USD',
-        'emoji': '🇿🇦➡️💰'
-    },
-    'thb_usdt': {
-        'name': 'THB/USDT',
-        'base': 'THB',
-        'quote': 'USDT',
-        'description': 'Тайский бат → Tether USD',
-        'emoji': '🇹🇭➡️💰'
-    },
-    'aed_usdt': {
-        'name': 'AED/USDT',
-        'base': 'AED',
-        'quote': 'USDT',
-        'description': 'Дирхам ОАЭ → Tether USD',
-        'emoji': '🇦🇪➡️💰'
-    },
-    'idr_usdt': {
-        'name': 'IDR/USDT',
-        'base': 'IDR',
-        'quote': 'USDT',
-        'description': 'Индонезийская рупия → Tether USD',
-        'emoji': '🇮🇩➡️💰'
-    },
-    'rub_usdt': {
-        'name': 'RUB/USDT',
-        'base': 'RUB',
-        'quote': 'USDT',
-        'description': 'Российский рубль → Tether USD',
-        'emoji': '🇷🇺➡️💰'
-    }
-}
-
-
-def get_currency_pair_info(pair_callback: str) -> Optional[dict]:
-    """
-    Получение информации о валютной паре по callback данным
-    
-    Args:
-        pair_callback: Callback данные валютной пары
-        
-    Returns:
-        dict: Информация о валютной паре или None если пара не найдена
-    """
-    return CURRENCY_PAIRS.get(pair_callback)
-
-
-def is_valid_currency_pair(pair_callback: str) -> bool:
-    """
-    Проверка валидности валютной пары
-    
-    Args:
-        pair_callback: Callback данные для проверки
-        
-    Returns:
-        bool: True если пара валидна
-    """
-    return pair_callback in CURRENCY_PAIRS
-
-
-@admin_router.callback_query(lambda c: c.data and '_' in c.data and not c.data.startswith('header_'))
+@admin_router.callback_query(lambda c: c.data and c.data.startswith('pair_'))
 async def handle_currency_pair_selection(callback_query: CallbackQuery, state: FSMContext):
     """
     Обработчик выбора валютной пары
     Обрабатывает все поддерживаемые валютные пары и запускает расчет наценки
     """
-    from .margin_calculation import start_margin_calculation
+    # Импортируем функцию из нового модуля
+    from .bot_handlers import start_margin_calculation
     
-    pair_callback = callback_query.data
+    # Извлекаем название пары из callback данных
+    pair_callback = callback_query.data.replace('pair_', '')
     user_id = callback_query.from_user.id
     username = callback_query.from_user.username or "N/A"
     

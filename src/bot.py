@@ -13,7 +13,7 @@ try:
     from .config import config
     from .utils.logger import get_bot_logger
     from .handlers.admin_handlers import admin_router
-    from .handlers.margin_calculation import margin_router
+    from .handlers.bot_handlers import margin_router  # Обновленный импорт
 except ImportError:
     # Handle direct execution
     import sys
@@ -22,7 +22,7 @@ except ImportError:
     from config import config
     from utils.logger import get_bot_logger
     from handlers.admin_handlers import admin_router
-    from handlers.margin_calculation import margin_router
+    from handlers.bot_handlers import margin_router  # Обновленный импорт
 
 # Initialize logger
 logger = get_bot_logger()
@@ -92,14 +92,11 @@ class CryptoHelperBot:
             "Бот для автоматизации получения курсов криптовалют "
             "и расчета наценки для менеджеров.\n\n"
             "💱 <b>Поддерживаемые пары:</b>\n"
-            "• RUB/ZAR, ZAR/RUB\n"
-            "• RUB/THB, THB/RUB\n"
-            "• RUB/AED, AED/RUB\n"
-            "• RUB/IDR, IDR/RUB\n"
             "• USDT/ZAR, ZAR/USDT\n"
             "• USDT/THB, THB/USDT\n"
             "• USDT/AED, AED/USDT\n"
-            "• USDT/IDR, IDR/USDT\n\n"
+            "• USDT/IDR, IDR/USDT\n"
+            "• USDT/RUB, RUB/USDT\n\n"
             "⚡ <b>Команды:</b>\n"
             "/start - Начало работы\n"
             "/help - Эта справка\n"
