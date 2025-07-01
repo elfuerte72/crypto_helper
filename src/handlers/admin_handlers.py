@@ -88,97 +88,34 @@ async def check_admin_permissions(bot: Bot, chat_id: int, user_id: int) -> bool:
 def create_currency_pairs_keyboard() -> InlineKeyboardMarkup:
     """
     Создание inline клавиатуры для выбора валютных пар
+    Упрощенная версия с только USDT парами
     
     Returns:
         InlineKeyboardMarkup: Клавиатура с валютными парами
     """
     
-    # Группируем валютные пары по базовой валюте
-    rub_pairs = [
-        ('RUB/ZAR', 'rub_zar'),
-        ('RUB/THB', 'rub_thb'), 
-        ('RUB/AED', 'rub_aed'),
-        ('RUB/IDR', 'rub_idr')
-    ]
-    
-    usdt_pairs = [
+    # Все валютные пары в одном списке (только USDT)
+    all_pairs = [
         ('USDT/ZAR', 'usdt_zar'),
         ('USDT/THB', 'usdt_thb'),
         ('USDT/AED', 'usdt_aed'), 
-        ('USDT/IDR', 'usdt_idr')
-    ]
-    
-    # Обратные пары
-    reverse_rub_pairs = [
-        ('ZAR/RUB', 'zar_rub'),
-        ('THB/RUB', 'thb_rub'),
-        ('AED/RUB', 'aed_rub'),
-        ('IDR/RUB', 'idr_rub')
-    ]
-    
-    reverse_usdt_pairs = [
+        ('USDT/IDR', 'usdt_idr'),
+        ('USDT/RUB', 'usdt_rub'),
         ('ZAR/USDT', 'zar_usdt'),
         ('THB/USDT', 'thb_usdt'),
         ('AED/USDT', 'aed_usdt'),
-        ('IDR/USDT', 'idr_usdt')
+        ('IDR/USDT', 'idr_usdt'),
+        ('RUB/USDT', 'rub_usdt')
     ]
     
-    # Создаем кнопки
+    # Создаем кнопки по 2 в ряд
     keyboard = []
     
-    # Добавляем заголовок для RUB пар
-    keyboard.append([
-        InlineKeyboardButton(text="🇷🇺 RUB → Другие валюты", callback_data="header_rub")
-    ])
-    
-    # Добавляем RUB пары по 2 в ряд
-    for i in range(0, len(rub_pairs), 2):
+    for i in range(0, len(all_pairs), 2):
         row = []
         for j in range(2):
-            if i + j < len(rub_pairs):
-                pair_name, callback_data = rub_pairs[i + j]
-                row.append(InlineKeyboardButton(text=pair_name, callback_data=callback_data))
-        keyboard.append(row)
-    
-    # Добавляем заголовок для USDT пар
-    keyboard.append([
-        InlineKeyboardButton(text="💰 USDT → Другие валюты", callback_data="header_usdt")
-    ])
-    
-    # Добавляем USDT пары по 2 в ряд
-    for i in range(0, len(usdt_pairs), 2):
-        row = []
-        for j in range(2):
-            if i + j < len(usdt_pairs):
-                pair_name, callback_data = usdt_pairs[i + j]
-                row.append(InlineKeyboardButton(text=pair_name, callback_data=callback_data))
-        keyboard.append(row)
-    
-    # Добавляем заголовок для обратных RUB пар
-    keyboard.append([
-        InlineKeyboardButton(text="🔄 Другие валюты → RUB", callback_data="header_reverse_rub")
-    ])
-    
-    # Добавляем обратные RUB пары по 2 в ряд
-    for i in range(0, len(reverse_rub_pairs), 2):
-        row = []
-        for j in range(2):
-            if i + j < len(reverse_rub_pairs):
-                pair_name, callback_data = reverse_rub_pairs[i + j]
-                row.append(InlineKeyboardButton(text=pair_name, callback_data=callback_data))
-        keyboard.append(row)
-    
-    # Добавляем заголовок для обратных USDT пар
-    keyboard.append([
-        InlineKeyboardButton(text="🔄 Другие валюты → USDT", callback_data="header_reverse_usdt")
-    ])
-    
-    # Добавляем обратные USDT пары по 2 в ряд
-    for i in range(0, len(reverse_usdt_pairs), 2):
-        row = []
-        for j in range(2):
-            if i + j < len(reverse_usdt_pairs):
-                pair_name, callback_data = reverse_usdt_pairs[i + j]
+            if i + j < len(all_pairs):
+                pair_name, callback_data = all_pairs[i + j]
                 row.append(InlineKeyboardButton(text=pair_name, callback_data=callback_data))
         keyboard.append(row)
     
@@ -288,12 +225,7 @@ async def admin_bot_command(message: Message, bot: Bot):
         logger.error(f"Неожиданная ошибка при отображении панели: {e}")
 
 
-@admin_router.callback_query(lambda c: c.data and c.data.startswith('header_'))
-async def handle_header_callbacks(callback_query: CallbackQuery):
-    """
-    Обработчик для кнопок-заголовков (не выполняет действий, только уведомление)
-    """
-    await callback_query.answer("Это заголовок. Выберите валютную пару ниже.", show_alert=False)
+
 
 
 @admin_router.callback_query(lambda c: c.data == 'cancel_selection')
@@ -312,38 +244,9 @@ async def handle_cancel_selection(callback_query: CallbackQuery):
     logger.info(f"Пользователь {callback_query.from_user.id} отменил выбор валютной пары")
 
 
-# Константы для валютных пар
+# Константы для валютных пар (только USDT пары)
 CURRENCY_PAIRS = {
-    # RUB пары
-    'rub_zar': {
-        'name': 'RUB/ZAR',
-        'base': 'RUB',
-        'quote': 'ZAR',
-        'description': 'Российский рубль → Южноафриканский рэнд',
-        'emoji': '🇷🇺➡️🇿🇦'
-    },
-    'rub_thb': {
-        'name': 'RUB/THB',
-        'base': 'RUB',
-        'quote': 'THB',
-        'description': 'Российский рубль → Тайский бат',
-        'emoji': '🇷🇺➡️🇹🇭'
-    },
-    'rub_aed': {
-        'name': 'RUB/AED',
-        'base': 'RUB',
-        'quote': 'AED',
-        'description': 'Российский рубль → Дирхам ОАЭ',
-        'emoji': '🇷🇺➡️🇦🇪'
-    },
-    'rub_idr': {
-        'name': 'RUB/IDR',
-        'base': 'RUB',
-        'quote': 'IDR',
-        'description': 'Российский рубль → Индонезийская рупия',
-        'emoji': '🇷🇺➡️🇮🇩'
-    },
-    # USDT пары
+    # USDT пары (USDT → другие валюты)
     'usdt_zar': {
         'name': 'USDT/ZAR',
         'base': 'USDT',
@@ -372,36 +275,14 @@ CURRENCY_PAIRS = {
         'description': 'Tether USD → Индонезийская рупия',
         'emoji': '💰➡️🇮🇩'
     },
-    # Обратные RUB пары
-    'zar_rub': {
-        'name': 'ZAR/RUB',
-        'base': 'ZAR',
+    'usdt_rub': {
+        'name': 'USDT/RUB',
+        'base': 'USDT',
         'quote': 'RUB',
-        'description': 'Южноафриканский рэнд → Российский рубль',
-        'emoji': '🇿🇦➡️🇷🇺'
+        'description': 'Tether USD → Российский рубль',
+        'emoji': '💰➡️🇷🇺'
     },
-    'thb_rub': {
-        'name': 'THB/RUB',
-        'base': 'THB',
-        'quote': 'RUB',
-        'description': 'Тайский бат → Российский рубль',
-        'emoji': '🇹🇭➡️🇷🇺'
-    },
-    'aed_rub': {
-        'name': 'AED/RUB',
-        'base': 'AED',
-        'quote': 'RUB',
-        'description': 'Дирхам ОАЭ → Российский рубль',
-        'emoji': '🇦🇪➡️🇷🇺'
-    },
-    'idr_rub': {
-        'name': 'IDR/RUB',
-        'base': 'IDR',
-        'quote': 'RUB',
-        'description': 'Индонезийская рупия → Российский рубль',
-        'emoji': '🇮🇩➡️🇷🇺'
-    },
-    # Обратные USDT пары
+    # Обратные USDT пары (другие валюты → USDT)
     'zar_usdt': {
         'name': 'ZAR/USDT',
         'base': 'ZAR',
@@ -429,6 +310,13 @@ CURRENCY_PAIRS = {
         'quote': 'USDT',
         'description': 'Индонезийская рупия → Tether USD',
         'emoji': '🇮🇩➡️💰'
+    },
+    'rub_usdt': {
+        'name': 'RUB/USDT',
+        'base': 'RUB',
+        'quote': 'USDT',
+        'description': 'Российский рубль → Tether USD',
+        'emoji': '🇷🇺➡️💰'
     }
 }
 
