@@ -42,6 +42,9 @@ class CryptoHelperBot:
         # Include admin router
         self.dp.include_router(admin_router)
         
+        # Include margin calculation router
+        self.dp.include_router(margin_router)
+        
         # Basic command handlers
         self.dp.message(Command('start'))(self.start_handler)
         self.dp.message(Command('test'))(self.test_handler)

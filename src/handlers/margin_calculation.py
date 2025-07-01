@@ -4,30 +4,28 @@
 Включает FSM для управления диалогом с пользователем
 """
 
-import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from aiogram import Router, Bot, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Router, F
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.exceptions import TelegramBadRequest
 
 try:
-    from ..config import config
     from ..utils.logger import get_bot_logger
-    from ..services.api_service import api_service, ExchangeRate, RapiraAPIError
-    from .admin_handlers import CURRENCY_PAIRS, get_currency_pair_info
+    from ..services.api_service import api_service, RapiraAPIError
+    from .admin_handlers import get_currency_pair_info
 except ImportError:
     # Handle direct execution
     import sys
     import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from config import config
     from utils.logger import get_bot_logger
-    from services.api_service import api_service, ExchangeRate, RapiraAPIError
-    from handlers.admin_handlers import CURRENCY_PAIRS, get_currency_pair_info
+    from services.api_service import api_service, RapiraAPIError
+    from handlers.admin_handlers import get_currency_pair_info
 
 # Initialize logger
 logger = get_bot_logger()
@@ -832,7 +830,7 @@ def format_calculation_result(
         
         f"🕐 <b>Время получения курса:</b> {timestamp}\n"
         f"📡 <b>Источник:</b> {exchange_rate_data.get('source', 'N/A')}\n\n"
-        f"💡 <i>Используйте кнопки ниже для публикации или копирования</i>"
+        f"💡 <i>Используйте кнопки ниже для управления расчетом</i>"
     )
     
     return result_message
@@ -847,14 +845,7 @@ def create_result_keyboard() -> InlineKeyboardMarkup:
     """
     keyboard = [
         [
-            InlineKeyboardButton(text="📤 Опубликовать в канал", callback_data="publish_result"),
-            InlineKeyboardButton(text="🔄 Пересчитать", callback_data="recalculate_margin")
-        ],
-        [
-            InlineKeyboardButton(text="📋 Копировать результат", callback_data="copy_result"),
-            InlineKeyboardButton(text="📊 Новая пара", callback_data="back_to_main")
-        ],
-        [
+            InlineKeyboardButton(text="🔄 Пересчитать", callback_data="recalculate_margin"),
             InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")
         ]
     ]
@@ -862,126 +853,7 @@ def create_result_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-@margin_router.callback_query(lambda c: c.data == 'publish_result', MarginCalculationForm.showing_result)
-async def handle_publish_result(callback_query: CallbackQuery, state: FSMContext):
-    """
-    Обработчик публикации результата в канал
-    """
-    user_id = callback_query.from_user.id
-    username = callback_query.from_user.username or "N/A"
-    full_name = callback_query.from_user.full_name or "Менеджер"
-    
-    logger.info(f"Запрос публикации от пользователя {user_id} (@{username})")
-    
-    try:
-        # Получаем данные расчета
-        data = await state.get_data()
-        pair_info = data.get('pair_info')
-        base_rate = Decimal(str(data.get('base_rate')))
-        margin = Decimal(str(data.get('margin_percent')))
-        final_rate = Decimal(str(data.get('final_rate')))
-        rate_change = Decimal(str(data.get('rate_change')))
-        exchange_rate_data = data.get('exchange_rate')
-        
-        if not all([pair_info, base_rate, margin, final_rate, exchange_rate_data]):
-            raise MarginCalculationError("Данные расчета потеряны")
-        
-        # Импортируем модуль публикации
-        from .channel_publisher import ChannelPublisher
-        
-        # Определяем режим работы и ID канала
-        development_mode = config.DEBUG_MODE or not config.ADMIN_CHANNEL_ID
-        channel_id = config.ADMIN_CHANNEL_ID if not development_mode else None
-        
-        # Получаем бота из callback_query
-        bot = callback_query.bot
-        
-        # Публикуем результат
-        publish_result = await ChannelPublisher.publish_result(
-            bot=bot,
-            pair_info=pair_info,
-            base_rate=base_rate,
-            margin=margin,
-            final_rate=final_rate,
-            rate_change=rate_change,
-            exchange_rate_data=exchange_rate_data,
-            manager_name=full_name,
-            user_id=user_id,
-            channel_id=channel_id,
-            development_mode=development_mode,
-            calculation_amount=Decimal(str(data.get('calculation_amount')))
-        )
-        
-        if publish_result['success']:
-            # Успешная публикация
-            success_message = (
-                f"✅ <b>Публикация завершена</b>\n\n"
-                f"{publish_result['message']}\n\n"
-                f"📊 <b>Опубликованные данные:</b>\n"
-                f"• Валютная пара: {pair_info['name']}\n"
-                f"• Итоговый курс: {final_rate:.8f} {pair_info['quote']}\n"
-                f"• Наценка: {margin:+.2f}%\n"
-                f"• Менеджер: {full_name}\n\n"
-                f"🎯 <b>Цель:</b> {publish_result['target']}\n\n"
-                f"💡 <i>Для новой публикации используйте /admin_bot</i>"
-            )
-            
-            await callback_query.message.edit_text(
-                success_message,
-                parse_mode='HTML'
-            )
-            
-            await callback_query.answer("✅ Результат опубликован")
-            
-        else:
-            # Ошибка публикации
-            error_message = (
-                f"❌ <b>Ошибка публикации</b>\n\n"
-                f"{publish_result['message']}\n\n"
-                f"🔧 <b>Возможные решения:</b>\n"
-                f"• Проверьте права бота в канале\n"
-                f"• Убедитесь, что бот добавлен в канал\n"
-                f"• Проверьте корректность ID канала\n\n"
-                f"🏠 Используйте /admin_bot для возврата к главному меню"
-            )
-            
-            await callback_query.message.edit_text(
-                error_message,
-                parse_mode='HTML'
-            )
-            
-            await callback_query.answer("❌ Ошибка публикации", show_alert=True)
-        
-        logger.info(
-            f"Публикация завершена: user_id={user_id}, "
-            f"success={publish_result['success']}, target={publish_result['target']}"
-        )
-        
-    except MarginCalculationError as e:
-        await callback_query.message.edit_text(
-            f"❌ <b>Ошибка данных</b>\n\n"
-            f"{str(e)}\n\n"
-            f"Начните расчет заново с команды /admin_bot",
-            parse_mode='HTML'
-        )
-        
-        await callback_query.answer("❌ Ошибка данных", show_alert=True)
-        await state.clear()
-        
-        logger.error(f"Ошибка данных при публикации: {e}")
-    
-    except Exception as e:
-        await callback_query.message.edit_text(
-            f"❌ <b>Произошла ошибка</b>\n\n"
-            f"Не удалось опубликовать результат.\n"
-            f"Попробуйте позже.\n\n"
-            f"🏠 Используйте /admin_bot для возврата к главному меню.",
-            parse_mode='HTML'
-        )
-        
-        await callback_query.answer("❌ Произошла ошибка", show_alert=True)
-        
-        logger.error(f"Неожиданная ошибка при публикации: {e}")
+
 
 
 @margin_router.callback_query(lambda c: c.data == 'recalculate_margin', MarginCalculationForm.showing_result)
@@ -1023,46 +895,7 @@ async def handle_recalculate_margin(callback_query: CallbackQuery, state: FSMCon
     await callback_query.answer("Введите новую наценку")
 
 
-@margin_router.callback_query(lambda c: c.data == 'copy_result', MarginCalculationForm.showing_result)
-async def handle_copy_result(callback_query: CallbackQuery, state: FSMContext):
-    """
-    Обработчик копирования результата в текстовом формате
-    """
-    try:
-        # Получаем данные расчета
-        data = await state.get_data()
-        pair_info = data.get('pair_info')
-        base_rate = Decimal(str(data.get('base_rate')))
-        margin = Decimal(str(data.get('margin_percent')))
-        final_rate = Decimal(str(data.get('final_rate')))
-        exchange_rate_data = data.get('exchange_rate')
-        
-        # Форматируем для копирования (простой текст)
-        base_currency = pair_info['base']
-        quote_currency = pair_info['quote']
-        
-        copy_text = (
-            f"💱 {pair_info['name']}\n"
-            f"📊 Базовый курс: {base_rate:.8f} {quote_currency}\n"
-            f"📈 Наценка: {margin:+.2f}%\n"
-            f"💎 Итоговый курс: {final_rate:.8f} {quote_currency}\n"
-            f"🕐 {exchange_rate_data.get('timestamp', '')[:19].replace('T', ' ')}\n"
-            f"📡 Источник: {exchange_rate_data.get('source', 'N/A')}"
-        )
-        
-        # Отправляем текст для копирования
-        await callback_query.message.reply(
-            f"📋 <b>Результат для копирования:</b>\n\n"
-            f"<code>{copy_text}</code>\n\n"
-            f"💡 <i>Нажмите на текст выше для копирования</i>",
-            parse_mode='HTML'
-        )
-        
-        await callback_query.answer("Результат подготовлен для копирования")
-        
-    except Exception as e:
-        await callback_query.answer("❌ Ошибка при подготовке результата", show_alert=True)
-        logger.error(f"Ошибка при копировании результата: {e}")
+
 
 
 # Обработчики для неожиданных сообщений в состояниях FSM
@@ -1678,140 +1511,13 @@ def create_result_keyboard() -> InlineKeyboardMarkup:
     """
     keyboard = [
         [
-            InlineKeyboardButton(text="📤 Опубликовать в канал", callback_data="publish_result"),
-            InlineKeyboardButton(text="🔄 Пересчитать", callback_data="recalculate_margin")
-        ],
-        [
-            InlineKeyboardButton(text="📋 Копировать результат", callback_data="copy_result"),
-            InlineKeyboardButton(text="📊 Новая пара", callback_data="back_to_main")
-        ],
-        [
+            InlineKeyboardButton(text="🔄 Пересчитать", callback_data="recalculate_margin"),
             InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")
         ]
     ]
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-
-@margin_router.callback_query(lambda c: c.data == 'publish_result', MarginCalculationForm.showing_result)
-async def handle_publish_result(callback_query: CallbackQuery, state: FSMContext):
-    """
-    Обработчик публикации результата в канал
-    """
-    user_id = callback_query.from_user.id
-    username = callback_query.from_user.username or "N/A"
-    full_name = callback_query.from_user.full_name or "Менеджер"
-    
-    logger.info(f"Запрос публикации от пользователя {user_id} (@{username})")
-    
-    try:
-        # Получаем данные расчета
-        data = await state.get_data()
-        pair_info = data.get('pair_info')
-        base_rate = Decimal(str(data.get('base_rate')))
-        margin = Decimal(str(data.get('margin_percent')))
-        final_rate = Decimal(str(data.get('final_rate')))
-        rate_change = Decimal(str(data.get('rate_change')))
-        exchange_rate_data = data.get('exchange_rate')
-        
-        if not all([pair_info, base_rate, margin, final_rate, exchange_rate_data]):
-            raise MarginCalculationError("Данные расчета потеряны")
-        
-        # Импортируем модуль публикации
-        from .channel_publisher import ChannelPublisher
-        
-        # Определяем режим работы и ID канала
-        development_mode = config.DEBUG_MODE or not config.ADMIN_CHANNEL_ID
-        channel_id = config.ADMIN_CHANNEL_ID if not development_mode else None
-        
-        # Получаем бота из callback_query
-        bot = callback_query.bot
-        
-        # Публикуем результат
-        publish_result = await ChannelPublisher.publish_result(
-            bot=bot,
-            pair_info=pair_info,
-            base_rate=base_rate,
-            margin=margin,
-            final_rate=final_rate,
-            rate_change=rate_change,
-            exchange_rate_data=exchange_rate_data,
-            manager_name=full_name,
-            user_id=user_id,
-            channel_id=channel_id,
-            development_mode=development_mode
-        )
-        
-        if publish_result['success']:
-            # Успешная публикация
-            success_message = (
-                f"✅ <b>Публикация завершена</b>\n\n"
-                f"{publish_result['message']}\n\n"
-                f"📊 <b>Опубликованные данные:</b>\n"
-                f"• Валютная пара: {pair_info['name']}\n"
-                f"• Итоговый курс: {final_rate:.8f} {pair_info['quote']}\n"
-                f"• Наценка: {margin:+.2f}%\n"
-                f"• Менеджер: {full_name}\n\n"
-                f"🎯 <b>Цель:</b> {publish_result['target']}\n\n"
-                f"💡 <i>Для новой публикации используйте /admin_bot</i>"
-            )
-            
-            await callback_query.message.edit_text(
-                success_message,
-                parse_mode='HTML'
-            )
-            
-            await callback_query.answer("✅ Результат опубликован")
-            
-        else:
-            # Ошибка публикации
-            error_message = (
-                f"❌ <b>Ошибка публикации</b>\n\n"
-                f"{publish_result['message']}\n\n"
-                f"🔧 <b>Возможные решения:</b>\n"
-                f"• Проверьте права бота в канале\n"
-                f"• Убедитесь, что бот добавлен в канал\n"
-                f"• Проверьте корректность ID канала\n\n"
-                f"🏠 Используйте /admin_bot для возврата к главному меню"
-            )
-            
-            await callback_query.message.edit_text(
-                error_message,
-                parse_mode='HTML'
-            )
-            
-            await callback_query.answer("❌ Ошибка публикации", show_alert=True)
-        
-        logger.info(
-            f"Публикация завершена: user_id={user_id}, "
-            f"success={publish_result['success']}, target={publish_result['target']}"
-        )
-        
-    except MarginCalculationError as e:
-        await callback_query.message.edit_text(
-            f"❌ <b>Ошибка данных</b>\n\n"
-            f"{str(e)}\n\n"
-            f"Начните расчет заново с команды /admin_bot",
-            parse_mode='HTML'
-        )
-        
-        await callback_query.answer("❌ Ошибка данных", show_alert=True)
-        await state.clear()
-        
-        logger.error(f"Ошибка данных при публикации: {e}")
-    
-    except Exception as e:
-        await callback_query.message.edit_text(
-            f"❌ <b>Произошла ошибка</b>\n\n"
-            f"Не удалось опубликовать результат.\n"
-            f"Попробуйте позже.\n\n"
-            f"🏠 Используйте /admin_bot для возврата к главному меню.",
-            parse_mode='HTML'
-        )
-        
-        await callback_query.answer("❌ Произошла ошибка", show_alert=True)
-        
-        logger.error(f"Неожиданная ошибка при публикации: {e}")
 
 
 @margin_router.callback_query(lambda c: c.data == 'recalculate_margin', MarginCalculationForm.showing_result)
@@ -1853,46 +1559,7 @@ async def handle_recalculate_margin(callback_query: CallbackQuery, state: FSMCon
     await callback_query.answer("Введите новую наценку")
 
 
-@margin_router.callback_query(lambda c: c.data == 'copy_result', MarginCalculationForm.showing_result)
-async def handle_copy_result(callback_query: CallbackQuery, state: FSMContext):
-    """
-    Обработчик копирования результата в текстовом формате
-    """
-    try:
-        # Получаем данные расчета
-        data = await state.get_data()
-        pair_info = data.get('pair_info')
-        base_rate = Decimal(str(data.get('base_rate')))
-        margin = Decimal(str(data.get('margin_percent')))
-        final_rate = Decimal(str(data.get('final_rate')))
-        exchange_rate_data = data.get('exchange_rate')
-        
-        # Форматируем для копирования (простой текст)
-        base_currency = pair_info['base']
-        quote_currency = pair_info['quote']
-        
-        copy_text = (
-            f"💱 {pair_info['name']}\n"
-            f"📊 Базовый курс: {base_rate:.8f} {quote_currency}\n"
-            f"📈 Наценка: {margin:+.2f}%\n"
-            f"💎 Итоговый курс: {final_rate:.8f} {quote_currency}\n"
-            f"🕐 {exchange_rate_data.get('timestamp', '')[:19].replace('T', ' ')}\n"
-            f"📡 Источник: {exchange_rate_data.get('source', 'N/A')}"
-        )
-        
-        # Отправляем текст для копирования
-        await callback_query.message.reply(
-            f"📋 <b>Результат для копирования:</b>\n\n"
-            f"<code>{copy_text}</code>\n\n"
-            f"💡 <i>Нажмите на текст выше для копирования</i>",
-            parse_mode='HTML'
-        )
-        
-        await callback_query.answer("Результат подготовлен для копирования")
-        
-    except Exception as e:
-        await callback_query.answer("❌ Ошибка при подготовке результата", show_alert=True)
-        logger.error(f"Ошибка при копировании результата: {e}")
+
 
 
 # Обработчики для неожиданных сообщений в состояниях FSM

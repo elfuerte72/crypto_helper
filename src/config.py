@@ -23,8 +23,7 @@ class Config:
     RAPIRA_API_KEY: str = os.getenv('RAPIRA_API_KEY', '')
     RAPIRA_API_URL: str = os.getenv('RAPIRA_API_URL', 'https://api.rapira.net/open/market/rates')
     
-    # Channel Configuration
-    ADMIN_CHANNEL_ID: str = os.getenv('ADMIN_CHANNEL_ID', '')
+
     
     # Development Settings
     DEBUG_MODE: bool = os.getenv('DEBUG_MODE', 'False').lower() == 'true'
