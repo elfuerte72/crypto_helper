@@ -44,7 +44,8 @@ class ChannelPublisher:
         final_rate: Decimal,
         rate_change: Decimal,
         exchange_rate_data: Dict[str, Any],
-        manager_name: str = "Менеджер"
+        manager_name: str = "Менеджер",
+        calculation_amount: Optional[Decimal] = None
     ) -> str:
         """
         Форматирование сообщения для публикации в канал
@@ -79,11 +80,24 @@ class ChannelPublisher:
         now = datetime.now()
         timestamp = now.strftime("%d.%m.%Y %H:%M")
         
+        # Расчет сумм если указана сумма
+        amount_section = ""
+        if calculation_amount:
+            amount_display = ChannelPublisher._format_currency_value(calculation_amount, base_currency)
+            amount_final = calculation_amount * final_rate
+            amount_final_str = ChannelPublisher._format_currency_value(amount_final, quote_currency)
+            
+            amount_section = (
+                f"💰 <b>Пример расчета:</b>\n"
+                f"{amount_display} {base_currency} = {amount_final_str} {quote_currency}\n\n"
+            )
+        
         # Создаем сообщение для канала
         channel_message = (
             f"💱 <b>{pair_info['name']}</b>\n\n"
             f"{change_emoji} <b>Актуальный курс:</b> <code>{final_rate_str}</code> {quote_currency}\n"
             f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{margin}%</code>\n\n"
+            f"{amount_section}"
             f"📊 <b>Детали:</b>\n"
             f"• Базовый курс: {base_rate_str} {quote_currency}\n"
             f"• Итоговый курс: {final_rate_str} {quote_currency}\n\n"
@@ -103,7 +117,8 @@ class ChannelPublisher:
         final_rate: Decimal,
         rate_change: Decimal,
         exchange_rate_data: Dict[str, Any],
-        manager_name: str = "Менеджер"
+        manager_name: str = "Менеджер",
+        calculation_amount: Optional[Decimal] = None
     ) -> str:
         """
         Форматирование сообщения для отправки в ЛС (режим разработки)
@@ -140,6 +155,27 @@ class ChannelPublisher:
         timestamp = now.strftime("%d.%m.%Y %H:%M:%S")
         source_timestamp = exchange_rate_data.get('timestamp', '')[:19].replace('T', ' ')
         
+        # Добавляем секцию с расчетами сумм
+        amount_section = ""
+        if calculation_amount:
+            amount_display = ChannelPublisher._format_currency_value(calculation_amount, base_currency)
+            amount_base = calculation_amount * base_rate
+            amount_final = calculation_amount * final_rate
+            amount_diff = amount_final - amount_base
+            
+            amount_base_str = ChannelPublisher._format_currency_value(amount_base, quote_currency)
+            amount_final_str = ChannelPublisher._format_currency_value(amount_final, quote_currency)
+            amount_diff_str = ChannelPublisher._format_currency_value(abs(amount_diff), quote_currency)
+            amount_diff_sign = "+" if amount_diff >= 0 else "-"
+            
+            amount_section = (
+                f"💰 <b>Расчет суммы:</b>\n"
+                f"• Сумма расчета: {amount_display} {base_currency}\n"
+                f"• По базовому курсу: {amount_base_str} {quote_currency}\n"
+                f"• По итоговому курсу: {amount_final_str} {quote_currency}\n"
+                f"• Разница: {amount_diff_sign}{amount_diff_str} {quote_currency}\n\n"
+            )
+        
         # Создаем расширенное сообщение для ЛС
         private_message = (
             f"🧪 <b>РЕЖИМ РАЗРАБОТКИ - Результат публикации</b>\n\n"
@@ -150,12 +186,13 @@ class ChannelPublisher:
             f"{margin_emoji} Наценка: <code>{margin_sign}{margin}%</code>\n"
             f"• Итоговый курс: <code>{final_rate_str}</code> {quote_currency}\n"
             f"{change_emoji} Изменение: <code>{change_sign}{rate_change_str}</code> {quote_currency}\n\n"
+            f"{amount_section}"
             f"👤 <b>Менеджер:</b> {manager_name}\n"
             f"🕐 <b>Время расчета:</b> {timestamp}\n"
             f"📡 <b>Время получения курса:</b> {source_timestamp}\n"
             f"🔗 <b>Источник:</b> {exchange_rate_data.get('source', 'N/A')}\n\n"
             f"📋 <b>Сообщение для канала:</b>\n"
-            f"<code>{ChannelPublisher.format_channel_message(pair_info, base_rate, margin, final_rate, rate_change, exchange_rate_data, manager_name)}</code>\n\n"
+            f"<code>{ChannelPublisher.format_channel_message(pair_info, base_rate, margin, final_rate, rate_change, exchange_rate_data, manager_name, calculation_amount)}</code>\n\n"
             f"💡 <i>В продакшене это сообщение будет отправлено в канал</i>"
         )
         
@@ -296,7 +333,8 @@ class ChannelPublisher:
         manager_name: str,
         user_id: int,
         channel_id: Optional[str] = None,
-        development_mode: bool = True
+        development_mode: bool = True,
+        calculation_amount: Optional[Decimal] = None
     ) -> Dict[str, Any]:
         """
         Основная функция публикации результата
@@ -334,7 +372,8 @@ class ChannelPublisher:
                     final_rate=final_rate,
                     rate_change=rate_change,
                     exchange_rate_data=exchange_rate_data,
-                    manager_name=manager_name
+                    manager_name=manager_name,
+                    calculation_amount=calculation_amount
                 )
                 
                 sent_message = await ChannelPublisher.send_to_private_chat(
@@ -359,7 +398,8 @@ class ChannelPublisher:
                     final_rate=final_rate,
                     rate_change=rate_change,
                     exchange_rate_data=exchange_rate_data,
-                    manager_name=manager_name
+                    manager_name=manager_name,
+                    calculation_amount=calculation_amount
                 )
                 
                 sent_message = await ChannelPublisher.publish_to_channel(

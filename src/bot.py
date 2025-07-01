@@ -13,6 +13,7 @@ try:
     from .config import config
     from .utils.logger import get_bot_logger
     from .handlers.admin_handlers import admin_router
+    from .handlers.margin_calculation import margin_router
 except ImportError:
     # Handle direct execution
     import sys
@@ -21,6 +22,7 @@ except ImportError:
     from config import config
     from utils.logger import get_bot_logger
     from handlers.admin_handlers import admin_router
+    from handlers.margin_calculation import margin_router
 
 # Initialize logger
 logger = get_bot_logger()
