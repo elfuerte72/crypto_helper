@@ -72,8 +72,7 @@ class MessageFormatter:
             f"• Расчет: {amount_display} × {final_rate_str} = {amount_final_str}\n\n"
             
             f"🕐 <b>Время получения курса:</b> {timestamp}\n"
-            f"📡 <b>Источник:</b> {result.exchange_rate_data.get('source', 'N/A')}\n\n"
-            f"💡 <i>Используйте кнопки ниже для управления расчетом</i>"
+            f"📡 <b>Источник:</b> {result.exchange_rate_data.get('source', 'N/A')}"
         )
         
         return message
