@@ -19,8 +19,8 @@ class InputValidator:
     @staticmethod
     def validate_amount(amount_text: str) -> Decimal:
         """
-        Валидация суммы для расчета
-        Принимает только числовые значения (int или float)
+        Упрощенная валидация суммы для расчета
+        Принимает только чистые числовые значения
         
         Args:
             amount_text: Текст с суммой
@@ -32,52 +32,31 @@ class InputValidator:
             ValidationError: При некорректной сумме
         """
         try:
-            # Удаляем только пробелы и заменяем запятую на точку
-            clean_text = amount_text.strip().replace(',', '.')
+            # Простая обработка - только убираем пробелы
+            clean_text = amount_text.strip()
             
-            # Проверяем, что строка содержит только цифры, точку и знак минуса
-            if not clean_text.replace('.', '').replace('-', '').isdigit():
-                raise ValidationError(
-                    "Используйте только числа, например: 1000, 500.50, 1250"
-                )
-            
-            # Проверяем, что есть хотя бы одна цифра
-            if not any(char.isdigit() for char in clean_text):
-                raise ValidationError(
-                    "Введите числовое значение, например: 1000, 500.50, 1250"
-                )
-            
-            # Проверяем количество точек (не больше одной)
-            if clean_text.count('.') > 1:
-                raise ValidationError(
-                    "Неверный формат числа. Используйте только одну точку для десятичной дроби"
-                )
-            
-            # Преобразуем в Decimal для точных вычислений
+            # Пытаемся преобразовать напрямую в Decimal
             amount = Decimal(clean_text)
             
-            # Проверяем диапазон (от 0.01 до 1,000,000,000)
+            # Простые проверки диапазона
             if amount <= 0:
                 raise ValidationError("Сумма должна быть больше нуля")
             
             if amount > Decimal('1000000000'):
-                raise ValidationError("Сумма слишком большая (максимум: 1,000,000,000)")
-            
-            if amount < Decimal('0.01'):
-                raise ValidationError("Минимальная сумма: 0.01")
+                raise ValidationError("Сумма слишком большая")
             
             return amount
             
         except (InvalidOperation, ValueError):
             raise ValidationError(
-                "Некорректный формат суммы. Используйте только числовые значения, например: 1000, 500.50, 1250"
+                "Введите числовое значение (например: 1000 или 500.50)"
             )
     
     @staticmethod
     def validate_margin(margin_text: str) -> Decimal:
         """
-        Валидация процентной наценки
-        Принимает только числовые значения (int или float)
+        Упрощенная валидация процентной наценки
+        Принимает только чистые числовые значения
         
         Args:
             margin_text: Текст с процентной наценкой
@@ -89,52 +68,24 @@ class InputValidator:
             ValidationError: При некорректной наценке
         """
         try:
-            # Удаляем пробелы и знак процента, заменяем запятую на точку
-            clean_text = margin_text.strip().replace('%', '').replace(',', '.')
+            # Простая обработка - убираем пробелы и знак %
+            clean_text = margin_text.strip().replace('%', '')
             
-            # Проверяем, что строка содержит только цифры, точку и знаки
-            if not clean_text.replace('.', '').replace('-', '').replace('+', '').isdigit():
-                raise ValidationError(
-                    "Используйте только числа, например: 5, 2.5, -1.2"
-                )
-            
-            # Проверяем, что есть хотя бы одна цифра
-            if not any(char.isdigit() for char in clean_text):
-                raise ValidationError(
-                    "Введите числовое значение, например: 5, 2.5, -1.2"
-                )
-            
-            # Проверяем количество точек (не больше одной)
-            if clean_text.count('.') > 1:
-                raise ValidationError(
-                    "Неверный формат числа. Используйте только одну точку для десятичной дроби"
-                )
-            
-            # Проверяем знаки + и - (только в начале)
-            if '+' in clean_text[1:] or '-' in clean_text[1:]:
-                raise ValidationError(
-                    "Знак '+' или '-' может быть только в начале числа"
-                )
-            
-            # Преобразуем в Decimal для точных вычислений
+            # Пытаемся преобразовать напрямую в Decimal
             margin = Decimal(clean_text)
             
-            # Проверяем диапазон (от -100% до +1000%)
+            # Простые проверки диапазона
             if margin < -100:
-                raise ValidationError(
-                    "Наценка не может быть меньше -100% (это означало бы отрицательную цену)"
-                )
+                raise ValidationError("Наценка не может быть меньше -100%")
             
             if margin > 1000:
-                raise ValidationError(
-                    "Наценка не может быть больше 1000% (слишком высокая наценка)"
-                )
+                raise ValidationError("Наценка не может быть больше 1000%")
             
             return margin
             
         except (InvalidOperation, ValueError):
             raise ValidationError(
-                "Некорректный формат наценки. Используйте только числовые значения, например: 5, 2.5, -1.2"
+                "Введите числовое значение (например: 5 или -1.2)"
             )
 
 
