@@ -605,10 +605,120 @@ async def handle_publish_result(callback_query: CallbackQuery, state: FSMContext
     """
     Обработчик публикации результата в канал
     """
-    await callback_query.answer("🚧 Функция публикации будет реализована в следующей фазе")
+    user_id = callback_query.from_user.id
+    username = callback_query.from_user.username or "N/A"
+    full_name = callback_query.from_user.full_name or "Менеджер"
     
-    # TODO: Реализовать в следующей задаче "Публикация результатов в канал"
-    logger.info(f"Запрос публикации от пользователя {callback_query.from_user.id}")
+    logger.info(f"Запрос публикации от пользователя {user_id} (@{username})")
+    
+    try:
+        # Получаем данные расчета
+        data = await state.get_data()
+        pair_info = data.get('pair_info')
+        base_rate = Decimal(str(data.get('base_rate')))
+        margin = Decimal(str(data.get('margin_percent')))
+        final_rate = Decimal(str(data.get('final_rate')))
+        rate_change = Decimal(str(data.get('rate_change')))
+        exchange_rate_data = data.get('exchange_rate')
+        
+        if not all([pair_info, base_rate, margin, final_rate, exchange_rate_data]):
+            raise MarginCalculationError("Данные расчета потеряны")
+        
+        # Импортируем модуль публикации
+        from .channel_publisher import ChannelPublisher
+        
+        # Определяем режим работы и ID канала
+        development_mode = config.DEBUG_MODE or not config.ADMIN_CHANNEL_ID
+        channel_id = config.ADMIN_CHANNEL_ID if not development_mode else None
+        
+        # Получаем бота из callback_query
+        bot = callback_query.bot
+        
+        # Публикуем результат
+        publish_result = await ChannelPublisher.publish_result(
+            bot=bot,
+            pair_info=pair_info,
+            base_rate=base_rate,
+            margin=margin,
+            final_rate=final_rate,
+            rate_change=rate_change,
+            exchange_rate_data=exchange_rate_data,
+            manager_name=full_name,
+            user_id=user_id,
+            channel_id=channel_id,
+            development_mode=development_mode
+        )
+        
+        if publish_result['success']:
+            # Успешная публикация
+            success_message = (
+                f"✅ <b>Публикация завершена</b>\n\n"
+                f"{publish_result['message']}\n\n"
+                f"📊 <b>Опубликованные данные:</b>\n"
+                f"• Валютная пара: {pair_info['name']}\n"
+                f"• Итоговый курс: {final_rate:.8f} {pair_info['quote']}\n"
+                f"• Наценка: {margin:+.2f}%\n"
+                f"• Менеджер: {full_name}\n\n"
+                f"🎯 <b>Цель:</b> {publish_result['target']}\n\n"
+                f"💡 <i>Для новой публикации используйте /admin_bot</i>"
+            )
+            
+            await callback_query.message.edit_text(
+                success_message,
+                parse_mode='HTML'
+            )
+            
+            await callback_query.answer("✅ Результат опубликован")
+            
+        else:
+            # Ошибка публикации
+            error_message = (
+                f"❌ <b>Ошибка публикации</b>\n\n"
+                f"{publish_result['message']}\n\n"
+                f"🔧 <b>Возможные решения:</b>\n"
+                f"• Проверьте права бота в канале\n"
+                f"• Убедитесь, что бот добавлен в канал\n"
+                f"• Проверьте корректность ID канала\n\n"
+                f"🏠 Используйте /admin_bot для возврата к главному меню"
+            )
+            
+            await callback_query.message.edit_text(
+                error_message,
+                parse_mode='HTML'
+            )
+            
+            await callback_query.answer("❌ Ошибка публикации", show_alert=True)
+        
+        logger.info(
+            f"Публикация завершена: user_id={user_id}, "
+            f"success={publish_result['success']}, target={publish_result['target']}"
+        )
+        
+    except MarginCalculationError as e:
+        await callback_query.message.edit_text(
+            f"❌ <b>Ошибка данных</b>\n\n"
+            f"{str(e)}\n\n"
+            f"Начните расчет заново с команды /admin_bot",
+            parse_mode='HTML'
+        )
+        
+        await callback_query.answer("❌ Ошибка данных", show_alert=True)
+        await state.clear()
+        
+        logger.error(f"Ошибка данных при публикации: {e}")
+    
+    except Exception as e:
+        await callback_query.message.edit_text(
+            f"❌ <b>Произошла ошибка</b>\n\n"
+            f"Не удалось опубликовать результат.\n"
+            f"Попробуйте позже.\n\n"
+            f"🏠 Используйте /admin_bot для возврата к главному меню.",
+            parse_mode='HTML'
+        )
+        
+        await callback_query.answer("❌ Произошла ошибка", show_alert=True)
+        
+        logger.error(f"Неожиданная ошибка при публикации: {e}")
 
 
 @margin_router.callback_query(lambda c: c.data == 'recalculate_margin', MarginCalculationForm.showing_result)
