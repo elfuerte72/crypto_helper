@@ -12,6 +12,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 from aiogram.filters import Command
 from aiogram.enums import ChatMemberStatus
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.fsm.context import FSMContext
 
 try:
     from ..config import config
@@ -439,11 +440,13 @@ def is_valid_currency_pair(pair_callback: str) -> bool:
 
 
 @admin_router.callback_query(lambda c: c.data and '_' in c.data and not c.data.startswith('header_'))
-async def handle_currency_pair_selection(callback_query: CallbackQuery):
+async def handle_currency_pair_selection(callback_query: CallbackQuery, state: FSMContext):
     """
     Обработчик выбора валютной пары
-    Обрабатывает все поддерживаемые валютные пары с детальной информацией
+    Обрабатывает все поддерживаемые валютные пары и запускает расчет наценки
     """
+    from .margin_calculation import start_margin_calculation
+    
     pair_callback = callback_query.data
     user_id = callback_query.from_user.id
     username = callback_query.from_user.username or "N/A"
@@ -473,51 +476,10 @@ async def handle_currency_pair_selection(callback_query: CallbackQuery):
         )
         return
     
-    # Формируем детальное сообщение о выбранной паре
-    response_message = (
-        f"✅ <b>Валютная пара выбрана</b>\n\n"
-        f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n"
-        f"📝 <i>{pair_info['description']}</i>\n\n"
-        f"💱 <b>Детали пары:</b>\n"
-        f"• Базовая валюта: <code>{pair_info['base']}</code>\n"
-        f"• Котируемая валюта: <code>{pair_info['quote']}</code>\n"
-        f"• Направление: {pair_info['base']} → {pair_info['quote']}\n\n"
-        f"🚧 <b>Статус разработки:</b>\n"
-        f"Функциональность получения курса и расчета наценки "
-        f"будет реализована в следующих фазах проекта.\n\n"
-        f"📋 <b>Следующие этапы:</b>\n"
-        f"1️⃣ Интеграция с Rapira API\n"
-        f"2️⃣ Запрос процентной наценки у менеджера\n"
-        f"3️⃣ Расчет итогового курса с наценкой\n"
-        f"4️⃣ Публикация результата в канал\n\n"
-        f"🔄 Используйте /admin_bot для выбора другой пары."
-    )
+    # Запускаем процесс расчета наценки
+    await start_margin_calculation(callback_query, pair_callback, state)
     
-    try:
-        # Обновляем сообщение с детальной информацией
-        await callback_query.message.edit_text(
-            response_message,
-            parse_mode='HTML'
-        )
-        
-        # Отправляем подтверждение выбора
-        await callback_query.answer(
-            f"Выбрана пара: {pair_info['name']} {pair_info['emoji']}",
-            show_alert=False
-        )
-        
-        logger.info(
-            f"Успешно обработан выбор валютной пары: "
-            f"user_id={user_id}, pair={pair_info['name']}"
-        )
-        
-    except Exception as e:
-        logger.error(
-            f"Ошибка при обработке выбора валютной пары: "
-            f"user_id={user_id}, pair={pair_callback}, error={e}"
-        )
-        
-        await callback_query.answer(
-            "❌ Произошла ошибка при обработке выбора",
-            show_alert=True
-        )
+    logger.info(
+        f"Запущен процесс расчета наценки для пары: "
+        f"user_id={user_id}, pair={pair_info['name']}"
+    )

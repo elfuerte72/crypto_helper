@@ -1,69 +1,100 @@
 #!/usr/bin/env python3
 """
 Crypto Helper Telegram Bot - MVP
-Minimal proof of concept for technology validation
+Основной файл бота с интеграцией всех модулей
 """
 
 import asyncio
 import logging
+import sys
 import os
-from dotenv import load_dotenv
+
+# Add src directory to path for imports
+sys.path.insert(0, os.path.dirname(__file__))
+
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
 from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
 
-# Load environment variables
-load_dotenv()
+# Import configuration and handlers
+from config import config
+from utils.logger import get_bot_logger
+from handlers.admin_handlers import admin_router
+from handlers.margin_calculation import margin_router
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Initialize logger
+logger = get_bot_logger()
 
-# Bot configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable is required")
+# Initialize bot and dispatcher with FSM storage
+bot = Bot(token=config.BOT_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
-# Initialize bot and dispatcher
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+
+# Include routers
+dp.include_router(admin_router)
+dp.include_router(margin_router)
 
 
 @dp.message(Command('start'))
 async def start_handler(message: Message):
-    """Handle /start command - Hello World test"""
+    """Handle /start command - Welcome message"""
     await message.reply(
-        "🚀 Crypto Helper Bot is running!\n"
-        "This is a technology validation test.\n"
-        "Bot is working correctly with Aiogram 3.x"
+        "🚀 <b>Crypto Helper Bot</b>\n\n"
+        "Добро пожаловать в бот для расчета курсов криптовалют!\n\n"
+        "📊 <b>Доступные команды:</b>\n"
+        "• /admin_bot - Панель управления (только для администраторов)\n"
+        "• /start - Показать это сообщение\n"
+        "• /help - Справка по использованию\n\n"
+        "💡 <i>Для доступа к функциям бота используйте команду /admin_bot</i>",
+        parse_mode='HTML'
     )
 
 
-@dp.message(Command('test'))
-async def test_handler(message: Message):
-    """Handle /test command - Basic functionality test"""
+@dp.message(Command('help'))
+async def help_handler(message: Message):
+    """Handle /help command - Help information"""
     await message.reply(
-        "✅ Test successful!\n"
-        f"Chat ID: {message.chat.id}\n"
-        f"User ID: {message.from_user.id}\n"
-        f"Username: @{message.from_user.username or 'N/A'}"
+        "📖 <b>Справка по использованию</b>\n\n"
+        "🔧 <b>Административные функции:</b>\n"
+        "• /admin_bot - Доступ к панели управления\n"
+        "  (только для администраторов канала)\n\n"
+        "💱 <b>Функциональность:</b>\n"
+        "• Выбор валютных пар (RUB, USDT, криптовалюты)\n"
+        "• Получение актуальных курсов через Rapira API\n"
+        "• Расчет курса с процентной наценкой\n"
+        "• Форматирование результатов для публикации\n\n"
+        "🌐 <b>Поддерживаемые направления:</b>\n"
+        "• RUB ↔ ZAR, THB, AED, IDR\n"
+        "• USDT ↔ ZAR, THB, AED, IDR\n"
+        "• Основные криптовалютные пары\n\n"
+        "⚙️ <b>Технические детали:</b>\n"
+        "• Курсы обновляются в реальном времени\n"
+        "• Поддержка положительных и отрицательных наценок\n"
+        "• Точные расчеты с округлением до 8 знаков\n\n"
+        "❓ Если у вас есть вопросы, обратитесь к администратору.",
+        parse_mode='HTML'
     )
 
 
 async def main():
     """Main function to start the bot"""
-    logger.info("Starting Crypto Helper Bot...")
+    logger.info("🚀 Запуск Crypto Helper Bot...")
+    logger.info(f"📊 Режим отладки: {config.DEBUG_MODE}")
+    logger.info(f"🔗 Rapira API URL: {config.RAPIRA_API_URL}")
+    logger.info(f"📋 Поддерживаемых пар: {len(config.SUPPORTED_PAIRS)}")
     
     try:
         # Start polling
+        logger.info("🔄 Начало polling...")
         await dp.start_polling(bot)
     except Exception as e:
-        logger.error(f"Error starting bot: {e}")
+        logger.error(f"❌ Ошибка запуска бота: {e}")
+        raise
     finally:
         await bot.session.close()
+        logger.info("🛑 Бот остановлен")
 
 
 if __name__ == '__main__':
