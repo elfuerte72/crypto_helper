@@ -6,7 +6,7 @@
 
 from typing import Dict, Any, Optional
 
-# Константы валютных пар (упрощенные - только USDT пары)
+# Константы валютных пар
 CURRENCY_PAIRS = {
     # USDT пары
     'usdt_zar': {
