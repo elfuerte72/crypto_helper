@@ -76,6 +76,4 @@ docs/_build/
 # Backup files
 *.bak
 *.backup
-# Memory Bank directories
-memory-bank/
-cursor-memory-bank/
+

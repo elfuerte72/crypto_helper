@@ -22,7 +22,9 @@ from handlers.admin_handlers import (
     admin_bot_command,
     handle_currency_pair_selection,
     handle_cancel_selection,
-    AdminPermissionError
+    AdminPermissionError,
+    get_currency_pair_info,
+    is_valid_currency_pair
 )
 
 
@@ -130,7 +132,7 @@ class TestCurrencyPairsKeyboard:
     """Тесты для создания клавиатуры валютных пар"""
     
     def test_create_currency_pairs_keyboard_structure(self):
-        """Тест структуры клавиатуры валютных пар"""
+        """Тест структуры клавиатуры валютных пар (только USDT)"""
         # Act
         keyboard = create_currency_pairs_keyboard()
         
@@ -144,22 +146,35 @@ class TestCurrencyPairsKeyboard:
             for button in row:
                 all_buttons_text.append(button.text)
         
-        # Проверяем наличие основных валютных пар
+        # Проверяем наличие только USDT валютных пар (10 пар)
         expected_pairs = [
-            'RUB/ZAR', 'RUB/THB', 'RUB/AED', 'RUB/IDR',
-            'USDT/ZAR', 'USDT/THB', 'USDT/AED', 'USDT/IDR',
-            'ZAR/RUB', 'THB/RUB', 'AED/RUB', 'IDR/RUB',
-            'ZAR/USDT', 'THB/USDT', 'AED/USDT', 'IDR/USDT'
+            'USDT/ZAR', 'USDT/THB', 'USDT/AED', 'USDT/IDR', 'USDT/RUB',
+            'ZAR/USDT', 'THB/USDT', 'AED/USDT', 'IDR/USDT', 'RUB/USDT'
         ]
         
         for pair in expected_pairs:
-            assert pair in all_buttons_text
+            assert pair in all_buttons_text, f"Пара {pair} не найдена в клавиатуре"
+        
+        # Проверяем отсутствие RUB пар (кроме USDT/RUB и RUB/USDT)
+        forbidden_pairs = [
+            'RUB/ZAR', 'RUB/THB', 'RUB/AED', 'RUB/IDR',
+            'ZAR/RUB', 'THB/RUB', 'AED/RUB', 'IDR/RUB'
+        ]
+        
+        for pair in forbidden_pairs:
+            assert pair not in all_buttons_text, f"Пара {pair} не должна быть в клавиатуре"
         
         # Проверяем наличие кнопки отмены
         assert '❌ Отмена' in all_buttons_text
+        
+        # Проверяем, что нет заголовков
+        header_patterns = ['→ Другие валюты', '→ RUB', '→ USDT']
+        for text in all_buttons_text:
+            for pattern in header_patterns:
+                assert pattern not in text, f"Найден заголовок: {text}"
     
     def test_create_currency_pairs_keyboard_callback_data(self):
-        """Тест правильности callback_data для кнопок"""
+        """Тест правильности callback_data для кнопок (только USDT)"""
         # Act
         keyboard = create_currency_pairs_keyboard()
         
@@ -170,17 +185,29 @@ class TestCurrencyPairsKeyboard:
                 if button.callback_data and not button.callback_data.startswith('header_'):
                     all_callback_data.append(button.callback_data)
         
-        # Проверяем наличие ожидаемых callback_data
+        # Проверяем наличие ожидаемых callback_data (только USDT пары)
         expected_callbacks = [
-            'rub_zar', 'rub_thb', 'rub_aed', 'rub_idr',
-            'usdt_zar', 'usdt_thb', 'usdt_aed', 'usdt_idr',
-            'zar_rub', 'thb_rub', 'aed_rub', 'idr_rub',
-            'zar_usdt', 'thb_usdt', 'aed_usdt', 'idr_usdt',
+            'usdt_zar', 'usdt_thb', 'usdt_aed', 'usdt_idr', 'usdt_rub',
+            'zar_usdt', 'thb_usdt', 'aed_usdt', 'idr_usdt', 'rub_usdt',
             'cancel_selection'
         ]
         
         for callback in expected_callbacks:
-            assert callback in all_callback_data
+            assert callback in all_callback_data, f"Callback {callback} не найден"
+        
+        # Проверяем отсутствие RUB callback_data
+        forbidden_callbacks = [
+            'rub_zar', 'rub_thb', 'rub_aed', 'rub_idr',
+            'zar_rub', 'thb_rub', 'aed_rub', 'idr_rub'
+        ]
+        
+        for callback in forbidden_callbacks:
+            assert callback not in all_callback_data, f"Callback {callback} не должен быть в клавиатуре"
+        
+        # Проверяем, что header callbacks отсутствуют
+        header_callbacks = ['header_rub', 'header_usdt', 'header_reverse_rub', 'header_reverse_usdt']
+        for callback in header_callbacks:
+            assert callback not in all_callback_data, f"Header callback {callback} не должен быть в клавиатуре"
 
 
 class TestAdminBotCommand:
@@ -201,6 +228,7 @@ class TestAdminBotCommand:
     async def test_admin_bot_command_no_channel_configured(self, mock_config):
         """Тест команды /admin_bot без настроенного канала"""
         # Arrange
+        mock_config.DEBUG_MODE = False
         mock_config.ADMIN_CHANNEL_ID = ""
         message = self.create_mock_message()
         bot_mock = AsyncMock()
@@ -220,6 +248,7 @@ class TestAdminBotCommand:
     async def test_admin_bot_command_not_admin(self, mock_check_admin, mock_config):
         """Тест команды /admin_bot для не-администратора"""
         # Arrange
+        mock_config.DEBUG_MODE = False
         mock_config.ADMIN_CHANNEL_ID = "-1001234567890"
         mock_check_admin.return_value = False
         message = self.create_mock_message()
@@ -240,6 +269,7 @@ class TestAdminBotCommand:
     async def test_admin_bot_command_admin_success(self, mock_check_admin, mock_config):
         """Тест успешного выполнения команды /admin_bot для администратора"""
         # Arrange
+        mock_config.DEBUG_MODE = False
         mock_config.ADMIN_CHANNEL_ID = "-1001234567890"
         mock_check_admin.return_value = True
         message = self.create_mock_message()
@@ -268,6 +298,7 @@ class TestAdminBotCommand:
     async def test_admin_bot_command_permission_error(self, mock_check_admin, mock_config):
         """Тест обработки ошибки проверки прав"""
         # Arrange
+        mock_config.DEBUG_MODE = False
         mock_config.ADMIN_CHANNEL_ID = "-1001234567890"
         mock_check_admin.side_effect = AdminPermissionError("Test error")
         message = self.create_mock_message()
@@ -281,6 +312,92 @@ class TestAdminBotCommand:
         call_args = message.reply.call_args[0][0]
         assert "Ошибка проверки прав" in call_args
         assert "Test error" in call_args
+
+
+class TestCurrencyPairUtils:
+    """Тесты для вспомогательных функций работы с валютными парами"""
+    
+    def test_is_valid_currency_pair_usdt_pairs(self):
+        """Тест валидации USDT валютных пар"""
+        # Валидные USDT пары
+        valid_pairs = [
+            'usdt_zar', 'usdt_thb', 'usdt_aed', 'usdt_idr', 'usdt_rub',
+            'zar_usdt', 'thb_usdt', 'aed_usdt', 'idr_usdt', 'rub_usdt'
+        ]
+        
+        for pair in valid_pairs:
+            assert is_valid_currency_pair(pair), f"Пара {pair} должна быть валидной"
+    
+    def test_is_valid_currency_pair_invalid_pairs(self):
+        """Тест валидации невалидных валютных пар"""
+        # Невалидные пары (удаленные RUB пары)
+        invalid_pairs = [
+            'rub_zar', 'rub_thb', 'rub_aed', 'rub_idr',
+            'zar_rub', 'thb_rub', 'aed_rub', 'idr_rub',
+            'invalid_pair', 'btc_usd', 'eur_usd'
+        ]
+        
+        for pair in invalid_pairs:
+            assert not is_valid_currency_pair(pair), f"Пара {pair} не должна быть валидной"
+    
+    def test_get_currency_pair_info_usdt_zar(self):
+        """Тест получения информации о USDT/ZAR"""
+        # Act
+        pair_info = get_currency_pair_info('usdt_zar')
+        
+        # Assert
+        assert pair_info is not None
+        assert pair_info['name'] == 'USDT/ZAR'
+        assert pair_info['base'] == 'USDT'
+        assert pair_info['quote'] == 'ZAR'
+        assert 'Tether USD' in pair_info['description']
+        assert 'Южноафриканский рэнд' in pair_info['description']
+        assert pair_info['emoji'] == '💰➡️🇿🇦'
+    
+    def test_get_currency_pair_info_rub_usdt(self):
+        """Тест получения информации о новой паре RUB/USDT"""
+        # Act
+        pair_info = get_currency_pair_info('rub_usdt')
+        
+        # Assert
+        assert pair_info is not None
+        assert pair_info['name'] == 'RUB/USDT'
+        assert pair_info['base'] == 'RUB'
+        assert pair_info['quote'] == 'USDT'
+        assert 'Российский рубль' in pair_info['description']
+        assert 'Tether USD' in pair_info['description']
+        assert pair_info['emoji'] == '🇷🇺➡️💰'
+    
+    def test_get_currency_pair_info_usdt_rub(self):
+        """Тест получения информации о новой паре USDT/RUB"""
+        # Act
+        pair_info = get_currency_pair_info('usdt_rub')
+        
+        # Assert
+        assert pair_info is not None
+        assert pair_info['name'] == 'USDT/RUB'
+        assert pair_info['base'] == 'USDT'
+        assert pair_info['quote'] == 'RUB'
+        assert 'Tether USD' in pair_info['description']
+        assert 'Российский рубль' in pair_info['description']
+        assert pair_info['emoji'] == '💰➡️🇷🇺'
+    
+    def test_get_currency_pair_info_invalid_pair(self):
+        """Тест получения информации о несуществующей паре"""
+        # Act
+        pair_info = get_currency_pair_info('invalid_pair')
+        
+        # Assert
+        assert pair_info is None
+    
+    def test_get_currency_pair_info_removed_rub_pair(self):
+        """Тест отсутствия информации о удаленных RUB парах"""
+        # Проверяем, что старые RUB пары удалены
+        removed_pairs = ['rub_zar', 'rub_thb', 'zar_rub', 'thb_rub']
+        
+        for pair in removed_pairs:
+            pair_info = get_currency_pair_info(pair)
+            assert pair_info is None, f"Пара {pair} должна быть удалена"
 
 
 class TestCallbackHandlers:
@@ -317,59 +434,90 @@ class TestCallbackHandlers:
         callback_query.answer.assert_called_once_with("Операция отменена", show_alert=False)
     
     @pytest.mark.asyncio
-    async def test_handle_currency_pair_selection_rub_zar(self):
-        """Тест выбора валютной пары RUB/ZAR"""
+    @patch('handlers.margin_calculation.start_margin_calculation')
+    async def test_handle_currency_pair_selection_usdt_zar(self, mock_start_margin):
+        """Тест выбора валютной пары USDT/ZAR"""
         # Arrange
-        callback_query = self.create_mock_callback_query('rub_zar')
+        callback_query = self.create_mock_callback_query('usdt_zar')
+        state_mock = Mock()
         
         # Act
-        await handle_currency_pair_selection(callback_query)
+        await handle_currency_pair_selection(callback_query, state_mock)
         
         # Assert
-        callback_query.message.edit_text.assert_called_once()
-        call_args = callback_query.message.edit_text.call_args[0][0]
-        assert "Валютная пара выбрана" in call_args
-        assert "RUB/ZAR" in call_args
-        
-        callback_query.answer.assert_called_once()
-        answer_args = callback_query.answer.call_args[0][0]
-        assert "RUB/ZAR" in answer_args
+        mock_start_margin.assert_called_once_with(callback_query, 'usdt_zar', state_mock)
     
     @pytest.mark.asyncio
-    async def test_handle_currency_pair_selection_usdt_thb(self):
+    @patch('handlers.margin_calculation.start_margin_calculation')
+    async def test_handle_currency_pair_selection_usdt_thb(self, mock_start_margin):
         """Тест выбора валютной пары USDT/THB"""
         # Arrange
         callback_query = self.create_mock_callback_query('usdt_thb')
+        state_mock = Mock()
         
         # Act
-        await handle_currency_pair_selection(callback_query)
+        await handle_currency_pair_selection(callback_query, state_mock)
         
         # Assert
-        callback_query.message.edit_text.assert_called_once()
-        call_args = callback_query.message.edit_text.call_args[0][0]
-        assert "USDT/THB" in call_args
-        
-        callback_query.answer.assert_called_once()
-        answer_args = callback_query.answer.call_args[0][0]
-        assert "USDT/THB" in answer_args
+        mock_start_margin.assert_called_once_with(callback_query, 'usdt_thb', state_mock)
     
     @pytest.mark.asyncio
-    async def test_handle_currency_pair_selection_reverse_pair(self):
-        """Тест выбора обратной валютной пары ZAR/RUB"""
+    @patch('handlers.margin_calculation.start_margin_calculation')
+    async def test_handle_currency_pair_selection_reverse_pair_zar_usdt(self, mock_start_margin):
+        """Тест выбора обратной валютной пары ZAR/USDT"""
         # Arrange
-        callback_query = self.create_mock_callback_query('zar_rub')
+        callback_query = self.create_mock_callback_query('zar_usdt')
+        state_mock = Mock()
         
         # Act
-        await handle_currency_pair_selection(callback_query)
+        await handle_currency_pair_selection(callback_query, state_mock)
         
         # Assert
-        callback_query.message.edit_text.assert_called_once()
-        call_args = callback_query.message.edit_text.call_args[0][0]
-        assert "ZAR/RUB" in call_args
+        mock_start_margin.assert_called_once_with(callback_query, 'zar_usdt', state_mock)
+    
+    @pytest.mark.asyncio
+    @patch('handlers.margin_calculation.start_margin_calculation')
+    async def test_handle_currency_pair_selection_usdt_rub(self, mock_start_margin):
+        """Тест выбора новой валютной пары USDT/RUB"""
+        # Arrange
+        callback_query = self.create_mock_callback_query('usdt_rub')
+        state_mock = Mock()
         
-        callback_query.answer.assert_called_once()
-        answer_args = callback_query.answer.call_args[0][0]
-        assert "ZAR/RUB" in answer_args
+        # Act
+        await handle_currency_pair_selection(callback_query, state_mock)
+        
+        # Assert
+        mock_start_margin.assert_called_once_with(callback_query, 'usdt_rub', state_mock)
+    
+    @pytest.mark.asyncio
+    @patch('handlers.margin_calculation.start_margin_calculation')
+    async def test_handle_currency_pair_selection_rub_usdt(self, mock_start_margin):
+        """Тест выбора новой валютной пары RUB/USDT"""
+        # Arrange
+        callback_query = self.create_mock_callback_query('rub_usdt')
+        state_mock = Mock()
+        
+        # Act
+        await handle_currency_pair_selection(callback_query, state_mock)
+        
+        # Assert
+        mock_start_margin.assert_called_once_with(callback_query, 'rub_usdt', state_mock)
+    
+    @pytest.mark.asyncio
+    async def test_handle_currency_pair_selection_invalid_pair(self):
+        """Тест обработки невалидной валютной пары"""
+        # Arrange
+        callback_query = self.create_mock_callback_query('invalid_pair')
+        state_mock = Mock()
+        
+        # Act
+        await handle_currency_pair_selection(callback_query, state_mock)
+        
+        # Assert
+        callback_query.answer.assert_called_once_with(
+            "❌ Неизвестная валютная пара",
+            show_alert=True
+        )
 
 
 if __name__ == '__main__':

@@ -6,7 +6,6 @@ Centralized configuration management with environment variables
 
 import os
 import logging
-from typing import Optional
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -19,12 +18,15 @@ class Config:
     # Bot Configuration
     BOT_TOKEN: str = os.getenv('BOT_TOKEN', '')
     
+    # Admin Configuration
+    ADMIN_CHANNEL_ID: int = int(os.getenv('ADMIN_CHANNEL_ID', '0'))
+    
     # Rapira API Configuration
     RAPIRA_API_KEY: str = os.getenv('RAPIRA_API_KEY', '')
-    RAPIRA_API_URL: str = os.getenv('RAPIRA_API_URL', 'https://api.rapira.net/open/market/rates')
-    
-    # Channel Configuration
-    ADMIN_CHANNEL_ID: str = os.getenv('ADMIN_CHANNEL_ID', '')
+    RAPIRA_API_URL: str = os.getenv(
+        'RAPIRA_API_URL', 
+        'https://api.rapira.net/open/market/rates'
+    )
     
     # Development Settings
     DEBUG_MODE: bool = os.getenv('DEBUG_MODE', 'False').lower() == 'true'
@@ -76,7 +78,9 @@ class Config:
                 missing_fields.append(field)
         
         if missing_fields:
-            raise ValueError(f"Missing required configuration: {', '.join(missing_fields)}")
+            raise ValueError(
+                f"Missing required configuration: {', '.join(missing_fields)}"
+            )
         
         return True
     
@@ -106,4 +110,6 @@ try:
     config.validate()
 except ValueError as e:
     print(f"❌ Configuration Error: {e}")
-    print("Please check your .env file and ensure all required variables are set.")
+    print(
+        "Please check your .env file and ensure all required variables are set."
+    )

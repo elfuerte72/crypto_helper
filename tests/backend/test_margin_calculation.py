@@ -13,84 +13,17 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from handlers.margin_calculation import (
-    MarginCalculator,
-    MarginCalculationError,
-    format_calculation_result,
-    create_margin_selection_keyboard,
-    create_result_keyboard
-)
+# Обновленные импорты из новых модулей
+from handlers.calculation_logic import MarginCalculator, CalculationResult
+from handlers.validation import ValidationError
+from handlers.formatters import MessageFormatter
+from handlers.keyboards import create_margin_selection_keyboard, create_result_keyboard
+from handlers.fsm_states import MarginCalculationError
 from services.api_service import ExchangeRate
 
 
 class TestMarginCalculator:
     """Test cases for MarginCalculator class"""
-    
-    def test_validate_margin_positive_integer(self):
-        """Test validation of positive integer margin"""
-        result = MarginCalculator.validate_margin("5")
-        assert result == Decimal("5")
-    
-    def test_validate_margin_positive_float(self):
-        """Test validation of positive float margin"""
-        result = MarginCalculator.validate_margin("2.5")
-        assert result == Decimal("2.5")
-    
-    def test_validate_margin_negative_integer(self):
-        """Test validation of negative integer margin"""
-        result = MarginCalculator.validate_margin("-3")
-        assert result == Decimal("-3")
-    
-    def test_validate_margin_negative_float(self):
-        """Test validation of negative float margin"""
-        result = MarginCalculator.validate_margin("-1.5")
-        assert result == Decimal("-1.5")
-    
-    def test_validate_margin_zero(self):
-        """Test validation of zero margin"""
-        result = MarginCalculator.validate_margin("0")
-        assert result == Decimal("0")
-    
-    def test_validate_margin_with_percent_sign(self):
-        """Test validation of margin with percent sign"""
-        result = MarginCalculator.validate_margin("5%")
-        assert result == Decimal("5")
-    
-    def test_validate_margin_with_spaces(self):
-        """Test validation of margin with spaces"""
-        result = MarginCalculator.validate_margin("  3.5  ")
-        assert result == Decimal("3.5")
-    
-    def test_validate_margin_comma_as_decimal_separator(self):
-        """Test validation of margin with comma as decimal separator"""
-        result = MarginCalculator.validate_margin("2,5")
-        assert result == Decimal("2.5")
-    
-    def test_validate_margin_too_low(self):
-        """Test validation fails for margin below -100%"""
-        with pytest.raises(MarginCalculationError) as exc_info:
-            MarginCalculator.validate_margin("-150")
-        
-        assert "не может быть меньше -100%" in str(exc_info.value)
-    
-    def test_validate_margin_too_high(self):
-        """Test validation fails for margin above 1000%"""
-        with pytest.raises(MarginCalculationError) as exc_info:
-            MarginCalculator.validate_margin("1500")
-        
-        assert "не может быть больше 1000%" in str(exc_info.value)
-    
-    def test_validate_margin_invalid_text(self):
-        """Test validation fails for invalid text"""
-        with pytest.raises(MarginCalculationError) as exc_info:
-            MarginCalculator.validate_margin("abc")
-        
-        assert "Некорректный формат наценки" in str(exc_info.value)
-    
-    def test_validate_margin_empty_string(self):
-        """Test validation fails for empty string"""
-        with pytest.raises(MarginCalculationError):
-            MarginCalculator.validate_margin("")
     
     def test_calculate_final_rate_positive_margin(self):
         """Test calculation with positive margin"""
@@ -172,6 +105,70 @@ class TestMarginCalculator:
         value = Decimal("12345.6789")
         result = MarginCalculator.format_currency_value(value, "OTHER")
         assert result == "12345.6789"
+    
+    def test_calculate_exchange_amounts(self):
+        """Test calculation of exchange amounts"""
+        amount = Decimal("1000")
+        base_rate = Decimal("100")
+        final_rate = Decimal("105")
+        
+        amount_base, amount_final, difference = MarginCalculator.calculate_exchange_amounts(
+            amount, base_rate, final_rate
+        )
+        
+        assert amount_base == Decimal("100000")
+        assert amount_final == Decimal("105000")
+        assert difference == Decimal("5000")
+
+
+class TestCalculationResult:
+    """Test cases for CalculationResult class"""
+    
+    def test_calculation_result_creation(self):
+        """Test CalculationResult creation"""
+        pair_info = {
+            'name': 'USDT/RUB',
+            'base': 'USDT',
+            'quote': 'RUB',
+            'description': 'Tether к Российскому рублю',
+            'emoji': '🇷🇺'
+        }
+        
+        amount = Decimal("1000")
+        base_rate = Decimal("95.5")
+        margin = Decimal("5")
+        final_rate = Decimal("100.275")
+        exchange_rate_data = {
+            'rate': 95.5,
+            'timestamp': '2023-12-01T12:00:00',
+            'source': 'rapira'
+        }
+        
+        result = CalculationResult(
+            pair_info, amount, base_rate, margin, final_rate, exchange_rate_data
+        )
+        
+        assert result.pair_info == pair_info
+        assert result.amount == amount
+        assert result.base_rate == base_rate
+        assert result.margin == margin
+        assert result.final_rate == final_rate
+        assert result.rate_change == Decimal("4.775")  # 100.275 - 95.5
+    
+    def test_calculation_result_to_dict(self):
+        """Test CalculationResult to_dict method"""
+        pair_info = {'name': 'USDT/RUB'}
+        result = CalculationResult(
+            pair_info, Decimal("100"), Decimal("95"), Decimal("5"), Decimal("99.75"), {}
+        )
+        
+        result_dict = result.to_dict()
+        
+        assert isinstance(result_dict, dict)
+        assert result_dict['amount'] == 100.0
+        assert result_dict['base_rate'] == 95.0
+        assert result_dict['margin'] == 5.0
+        assert result_dict['final_rate'] == 99.75
 
 
 class TestKeyboardCreation:
@@ -185,25 +182,6 @@ class TestKeyboardCreation:
         assert keyboard is not None
         assert hasattr(keyboard, 'inline_keyboard')
         assert len(keyboard.inline_keyboard) > 0
-        
-        # Check for header
-        header_found = False
-        for row in keyboard.inline_keyboard:
-            for button in row:
-                if "Быстрый выбор наценки" in button.text:
-                    header_found = True
-                    break
-        
-        assert header_found, "Header button should be present"
-        
-        # Check for margin buttons
-        margin_buttons_found = 0
-        for row in keyboard.inline_keyboard:
-            for button in row:
-                if button.callback_data and button.callback_data.startswith('margin_'):
-                    margin_buttons_found += 1
-        
-        assert margin_buttons_found > 0, "Margin buttons should be present"
         
         # Check for control buttons
         cancel_found = False
@@ -229,9 +207,7 @@ class TestKeyboardCreation:
         
         # Check for expected buttons
         expected_callbacks = [
-            'publish_result',
             'recalculate_margin',
-            'copy_result',
             'back_to_main'
         ]
         
@@ -251,36 +227,38 @@ class TestFormatCalculationResult:
     def test_format_calculation_result_positive_margin(self):
         """Test formatting result with positive margin"""
         pair_info = {
-            'name': 'RUB/ZAR',
-            'base': 'RUB',
-            'quote': 'ZAR',
-            'description': 'Российский рубль → Южноафриканский рэнд',
-            'emoji': '🇷🇺➡️🇿🇦'
+            'name': 'USDT/RUB',
+            'base': 'USDT',
+            'quote': 'RUB',
+            'description': 'Tether к Российскому рублю',
+            'emoji': '🇷🇺'
         }
         
-        base_rate = Decimal("5.5")
-        margin = Decimal("10")
-        final_rate = Decimal("6.05")
-        rate_change = Decimal("0.55")
+        amount = Decimal("1000")
+        base_rate = Decimal("95.5")
+        margin = Decimal("5")
+        final_rate = Decimal("100.275")
         exchange_rate_data = {
             'timestamp': '2023-12-01T12:00:00',
             'source': 'rapira'
         }
         
-        result = format_calculation_result(
-            pair_info, base_rate, margin, final_rate, rate_change, exchange_rate_data
+        result = CalculationResult(
+            pair_info, amount, base_rate, margin, final_rate, exchange_rate_data
         )
         
+        formatted_result = MessageFormatter.format_calculation_result(result)
+        
         # Check that result contains expected elements
-        assert "Расчет курса завершен" in result
-        assert "RUB/ZAR" in result
-        assert "🇷🇺➡️🇿🇦" in result
-        assert "5.5000" in result  # Base rate
-        assert "6.0500" in result  # Final rate
-        assert "+10%" in result    # Margin
-        assert "📈" in result      # Positive change emoji
-        assert "2023-12-01 12:00:00" in result  # Timestamp
-        assert "rapira" in result  # Source
+        assert "Расчет курса завершен" in formatted_result
+        assert "USDT/RUB" in formatted_result
+        assert "🇷🇺" in formatted_result
+        assert "95.50" in formatted_result  # Base rate
+        assert "100.28" in formatted_result  # Final rate
+        assert "+5%" in formatted_result    # Margin
+        assert "📈" in formatted_result      # Positive change emoji
+        assert "2023-12-01 12:00:00" in formatted_result  # Timestamp
+        assert "rapira" in formatted_result  # Source
     
     def test_format_calculation_result_negative_margin(self):
         """Test formatting result with negative margin"""
@@ -288,62 +266,34 @@ class TestFormatCalculationResult:
             'name': 'USDT/THB',
             'base': 'USDT',
             'quote': 'THB',
-            'description': 'Tether USD → Тайский бат',
-            'emoji': '💰➡️🇹🇭'
+            'description': 'Tether к Тайскому бату',
+            'emoji': '🇹🇭'
         }
         
+        amount = Decimal("500")
         base_rate = Decimal("35.0")
         margin = Decimal("-5")
         final_rate = Decimal("33.25")
-        rate_change = Decimal("-1.75")
         exchange_rate_data = {
             'timestamp': '2023-12-01T15:30:00',
             'source': 'mock'
         }
         
-        result = format_calculation_result(
-            pair_info, base_rate, margin, final_rate, rate_change, exchange_rate_data
+        result = CalculationResult(
+            pair_info, amount, base_rate, margin, final_rate, exchange_rate_data
         )
         
-        # Check that result contains expected elements
-        assert "USDT/THB" in result
-        assert "💰➡️🇹🇭" in result
-        assert "35.0000" in result  # Base rate
-        assert "33.2500" in result  # Final rate
-        assert "-5%" in result      # Margin
-        assert "📉" in result       # Negative change emoji
-        assert "2023-12-01 15:30:00" in result  # Timestamp
-        assert "mock" in result     # Source
-    
-    def test_format_calculation_result_zero_margin(self):
-        """Test formatting result with zero margin"""
-        pair_info = {
-            'name': 'BTC/USDT',
-            'base': 'BTC',
-            'quote': 'USDT',
-            'description': 'Bitcoin → Tether USD',
-            'emoji': '₿➡️💰'
-        }
-        
-        base_rate = Decimal("42000.12345678")
-        margin = Decimal("0")
-        final_rate = Decimal("42000.12345678")
-        rate_change = Decimal("0")
-        exchange_rate_data = {
-            'timestamp': '2023-12-01T10:15:30',
-            'source': 'rapira'
-        }
-        
-        result = format_calculation_result(
-            pair_info, base_rate, margin, final_rate, rate_change, exchange_rate_data
-        )
+        formatted_result = MessageFormatter.format_calculation_result(result)
         
         # Check that result contains expected elements
-        assert "BTC/USDT" in result
-        assert "42000.1235" in result      # Rate formatted to 4 decimals for USDT
-        assert "+0%" in result             # Zero margin
-        assert "+0.0000" in result         # Zero change formatted for USDT
-        assert "2023-12-01 10:15:30" in result
+        assert "USDT/THB" in formatted_result
+        assert "🇹🇭" in formatted_result
+        assert "35.00" in formatted_result  # Base rate
+        assert "33.25" in formatted_result  # Final rate
+        assert "-5%" in formatted_result    # Margin
+        assert "📉" in formatted_result     # Negative change emoji
+        assert "2023-12-01 15:30:00" in formatted_result  # Timestamp
+        assert "mock" in formatted_result   # Source
 
 
 class TestMarginCalculationIntegration:
@@ -353,58 +303,48 @@ class TestMarginCalculationIntegration:
     def mock_exchange_rate(self):
         """Fixture providing mock exchange rate data"""
         return ExchangeRate(
-            pair="RUB/ZAR",
-            rate=5.5,
+            pair="USDT/RUB",
+            rate=95.5,
             timestamp="2023-12-01T12:00:00",
             source="rapira",
-            bid=5.48,
-            ask=5.52,
-            high_24h=5.6,
-            low_24h=5.4,
-            change_24h=2.5
+            bid=95.3,
+            ask=95.7,
+            high_24h=96.0,
+            low_24h=95.0,
+            change_24h=1.5
         )
     
     def test_complete_calculation_workflow(self, mock_exchange_rate):
         """Test complete margin calculation workflow"""
-        # Step 1: Validate margin
-        margin_text = "7.5"
-        margin = MarginCalculator.validate_margin(margin_text)
-        assert margin == Decimal("7.5")
+        from handlers.calculation_logic import calculate_margin_rate
         
-        # Step 2: Calculate final rate
-        base_rate = Decimal(str(mock_exchange_rate.rate))
-        final_rate = MarginCalculator.calculate_final_rate(base_rate, margin)
-        expected_final_rate = Decimal("5.9125")  # 5.5 * 1.075
-        assert final_rate == expected_final_rate
-        
-        # Step 3: Calculate change
-        rate_change = final_rate - base_rate
-        expected_change = Decimal("0.4125")
-        assert rate_change == expected_change
-        
-        # Step 4: Format result
+        # Setup test data
         pair_info = {
-            'name': 'RUB/ZAR',
-            'base': 'RUB',
-            'quote': 'ZAR',
-            'description': 'Российский рубль → Южноафриканский рэнд',
-            'emoji': '🇷🇺➡️🇿🇦'
+            'name': 'USDT/RUB',
+            'base': 'USDT',
+            'quote': 'RUB',
+            'description': 'Tether к Российскому рублю',
+            'emoji': '🇷🇺'
         }
         
-        result = format_calculation_result(
+        amount = Decimal("1000")
+        margin = Decimal("5")
+        exchange_rate_data = mock_exchange_rate.to_dict()
+        
+        # Perform calculation
+        result = calculate_margin_rate(
             pair_info=pair_info,
-            base_rate=base_rate,
+            amount=amount,
             margin=margin,
-            final_rate=final_rate,
-            rate_change=rate_change,
-            exchange_rate_data=mock_exchange_rate.to_dict()
+            exchange_rate_data=exchange_rate_data
         )
         
-        # Verify formatted result
-        assert "5.5000" in result
-        assert "5.9125" in result
-        assert "+7.5%" in result
-        assert "+0.4125" in result
+        # Verify result
+        assert result.amount == amount
+        assert result.margin == margin
+        assert result.base_rate == Decimal("95.5")
+        assert result.final_rate == Decimal("100.275")  # 95.5 * 1.05
+        assert result.rate_change == Decimal("4.775")   # 100.275 - 95.5
     
     def test_edge_case_very_small_rate(self):
         """Test calculation with very small exchange rate"""

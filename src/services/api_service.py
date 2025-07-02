@@ -291,9 +291,9 @@ class APIService:
         """
         logger.info("Getting all exchange rates from Rapira API")
         
-        # For MVP - use mock implementation in debug mode
-        if config.DEBUG_MODE:
-            return await self._get_mock_all_rates()
+        # ПРИНУДИТЕЛЬНО ИСПОЛЬЗУЕМ ТОЛЬКО РЕАЛЬНЫЕ ДАННЫЕ ОТ RAPIRA API
+        # if config.DEBUG_MODE:
+        #     return await self._get_mock_all_rates()
         
         # Real API call to Rapira - получаем все курсы одним запросом
         try:
@@ -814,17 +814,18 @@ class APIService:
             'session_active': self.session is not None and not self.session.closed
         }
         
-        if config.DEBUG_MODE:
-            # In debug mode, perform mock health check
-            await asyncio.sleep(0.1)  # Simulate network delay
-            health_data.update({
-                'status': 'healthy',
-                'response_time_ms': 100,
-                'message': 'Mock health check (debug mode)',
-                'rates_available': len(config.SUPPORTED_PAIRS)
-            })
-            logger.info("Health check: OK (debug mode)")
-            return health_data
+        # ПРИНУДИТЕЛЬНО ОТКЛЮЧАЕМ MOCK HEALTH CHECK
+        # if config.DEBUG_MODE:
+        #     # In debug mode, perform mock health check
+        #     await asyncio.sleep(0.1)  # Simulate network delay
+        #     health_data.update({
+        #         'status': 'healthy',
+        #         'response_time_ms': 100,
+        #         'message': 'Mock health check (debug mode)',
+        #         'rates_available': len(config.SUPPORTED_PAIRS)
+        #     })
+        #     logger.info("Health check: OK (debug mode)")
+        #     return health_data
         
         # Real health check - проверяем основной эндпоинт
         start_time = asyncio.get_event_loop().time()
@@ -885,9 +886,10 @@ class APIService:
         """
         logger.info("Getting supported currency pairs")
         
-        if config.DEBUG_MODE:
-            # Return configured pairs in debug mode
-            return config.SUPPORTED_PAIRS.copy()
+        # ПРИНУДИТЕЛЬНО ОТКЛЮЧАЕМ MOCK ДАННЫЕ
+        # if config.DEBUG_MODE:
+        #     # Return configured pairs in debug mode
+        #     return config.SUPPORTED_PAIRS.copy()
         
         try:
             success, data, status_code = await self._make_request(

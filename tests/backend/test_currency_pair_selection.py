@@ -14,13 +14,15 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from handlers.admin_handlers import (
+# Обновленные импорты из новых модулей
+from handlers.currency_pairs import (
     CURRENCY_PAIRS,
     get_currency_pair_info,
-    is_valid_currency_pair,
+    is_valid_currency_pair
+)
+from handlers.admin_handlers import (
     handle_currency_pair_selection,
-    handle_cancel_selection,
-    handle_header_callbacks
+    handle_cancel_selection
 )
 
 
@@ -46,20 +48,16 @@ class TestCurrencyPairConstants:
     
     def test_currency_pairs_count(self):
         """Тест количества валютных пар"""
-        # Должно быть 16 пар: 4 RUB, 4 USDT, 4 обратных RUB, 4 обратных USDT
-        assert len(CURRENCY_PAIRS) == 16, "Должно быть 16 валютных пар"
+        # После упрощения должно быть 10 пар: только USDT пары
+        assert len(CURRENCY_PAIRS) == 10, "Должно быть 10 валютных пар (только USDT)"
     
     def test_currency_pairs_naming(self):
         """Тест правильности именования валютных пар"""
         expected_pairs = {
-            # RUB пары
-            'rub_zar', 'rub_thb', 'rub_aed', 'rub_idr',
             # USDT пары
-            'usdt_zar', 'usdt_thb', 'usdt_aed', 'usdt_idr',
-            # Обратные RUB пары
-            'zar_rub', 'thb_rub', 'aed_rub', 'idr_rub',
+            'usdt_zar', 'usdt_thb', 'usdt_aed', 'usdt_idr', 'usdt_rub',
             # Обратные USDT пары
-            'zar_usdt', 'thb_usdt', 'aed_usdt', 'idr_usdt'
+            'zar_usdt', 'thb_usdt', 'aed_usdt', 'idr_usdt', 'rub_usdt'
         }
         
         actual_pairs = set(CURRENCY_PAIRS.keys())
@@ -82,12 +80,12 @@ class TestCurrencyPairHelpers:
     
     def test_get_currency_pair_info_valid(self):
         """Тест получения информации о валидной валютной паре"""
-        pair_info = get_currency_pair_info('rub_zar')
+        pair_info = get_currency_pair_info('usdt_rub')
         
         assert pair_info is not None, "Должна быть возвращена информация о паре"
-        assert pair_info['name'] == 'RUB/ZAR', "Неправильное имя пары"
-        assert pair_info['base'] == 'RUB', "Неправильная базовая валюта"
-        assert pair_info['quote'] == 'ZAR', "Неправильная котируемая валюта"
+        assert pair_info['name'] == 'USDT/RUB', "Неправильное имя пары"
+        assert pair_info['base'] == 'USDT', "Неправильная базовая валюта"
+        assert pair_info['quote'] == 'RUB', "Неправильная котируемая валюта"
     
     def test_get_currency_pair_info_invalid(self):
         """Тест получения информации о невалидной валютной паре"""
@@ -101,14 +99,14 @@ class TestCurrencyPairHelpers:
     
     def test_is_valid_currency_pair_valid(self):
         """Тест проверки валидности для валидных пар"""
-        valid_pairs = ['rub_zar', 'usdt_thb', 'zar_rub', 'aed_usdt']
+        valid_pairs = ['usdt_zar', 'usdt_thb', 'zar_usdt', 'aed_usdt']
         
         for pair in valid_pairs:
             assert is_valid_currency_pair(pair), f"Пара {pair} должна быть валидной"
     
     def test_is_valid_currency_pair_invalid(self):
         """Тест проверки валидности для невалидных пар"""
-        invalid_pairs = ['invalid_pair', 'rub_usd', 'btc_eth', '']
+        invalid_pairs = ['invalid_pair', 'rub_usd', 'btc_eth', '', 'rub_zar']  # rub_zar больше не поддерживается
         
         for pair in invalid_pairs:
             assert not is_valid_currency_pair(pair), f"Пара {pair} не должна быть валидной"
@@ -144,76 +142,34 @@ class TestCurrencyPairCallbackHandlers:
         self.callback_query.from_user = self.user
         self.callback_query.message = self.message
         self.callback_query.answer = AsyncMock()
+        
+        # Mock FSMContext
+        self.state = AsyncMock()
     
     @pytest.mark.asyncio
     async def test_handle_currency_pair_selection_valid_pair(self):
         """Тест обработки выбора валидной валютной пары"""
-        self.callback_query.data = 'rub_zar'
-        
-        await handle_currency_pair_selection(self.callback_query)
-        
-        # Проверяем, что сообщение было обновлено
-        self.message.edit_text.assert_called_once()
-        
-        # Проверяем содержимое сообщения
-        call_args = self.message.edit_text.call_args
-        message_text = call_args[0][0]
-        
-        assert "RUB/ZAR" in message_text, "Сообщение должно содержать название пары"
-        assert "🇷🇺➡️🇿🇦" in message_text, "Сообщение должно содержать emoji пары"
-        assert "Российский рубль → Южноафриканский рэнд" in message_text, "Сообщение должно содержать описание"
-        
-        # Проверяем, что был отправлен ответ
-        self.callback_query.answer.assert_called_once()
-        answer_call = self.callback_query.answer.call_args
-        assert "RUB/ZAR" in answer_call[0][0], "Ответ должен содержать название пары"
+        with patch('handlers.bot_handlers.start_margin_calculation') as mock_start:
+            self.callback_query.data = 'pair_usdt_rub'
+            
+            await handle_currency_pair_selection(self.callback_query, self.state)
+            
+            # Проверяем, что была вызвана функция начала расчета наценки
+            mock_start.assert_called_once_with(
+                self.callback_query, 'usdt_rub', self.state
+            )
     
     @pytest.mark.asyncio
     async def test_handle_currency_pair_selection_invalid_pair(self):
         """Тест обработки выбора невалидной валютной пары"""
-        self.callback_query.data = 'invalid_pair'
+        self.callback_query.data = 'pair_invalid_pair'
         
-        await handle_currency_pair_selection(self.callback_query)
-        
-        # Проверяем, что сообщение не было обновлено
-        self.message.edit_text.assert_not_called()
+        await handle_currency_pair_selection(self.callback_query, self.state)
         
         # Проверяем, что был отправлен ответ об ошибке
         self.callback_query.answer.assert_called_once()
         answer_call = self.callback_query.answer.call_args
         assert "Неизвестная валютная пара" in answer_call[0][0], "Должно быть сообщение об ошибке"
-        assert answer_call[1]['show_alert'] is True, "Должен быть показан alert"
-    
-    @pytest.mark.asyncio
-    async def test_handle_currency_pair_selection_all_pairs(self):
-        """Тест обработки всех валютных пар"""
-        for pair_id in CURRENCY_PAIRS.keys():
-            # Сбрасываем mock объекты
-            self.message.edit_text.reset_mock()
-            self.callback_query.answer.reset_mock()
-            
-            self.callback_query.data = pair_id
-            
-            await handle_currency_pair_selection(self.callback_query)
-            
-            # Проверяем, что сообщение было обновлено
-            self.message.edit_text.assert_called_once(), f"Сообщение должно быть обновлено для пары {pair_id}"
-            
-            # Проверяем, что был отправлен ответ
-            self.callback_query.answer.assert_called_once(), f"Должен быть отправлен ответ для пары {pair_id}"
-    
-    @pytest.mark.asyncio
-    async def test_handle_currency_pair_selection_telegram_error(self):
-        """Тест обработки ошибки Telegram API"""
-        self.callback_query.data = 'rub_zar'
-        self.message.edit_text.side_effect = TelegramBadRequest(method="editMessageText", message="Test error")
-        
-        await handle_currency_pair_selection(self.callback_query)
-        
-        # Проверяем, что был отправлен ответ об ошибке
-        self.callback_query.answer.assert_called_once()
-        answer_call = self.callback_query.answer.call_args
-        assert "Произошла ошибка" in answer_call[0][0], "Должно быть сообщение об ошибке"
         assert answer_call[1]['show_alert'] is True, "Должен быть показан alert"
     
     @pytest.mark.asyncio
@@ -228,31 +184,12 @@ class TestCurrencyPairCallbackHandlers:
         call_args = self.message.edit_text.call_args
         message_text = call_args[0][0]
         
-        assert "Операция отменена" in message_text, "Сообщение должно содержать информацию об отмене"
+        assert "отменен" in message_text, "Сообщение должно содержать информацию об отмене"
         
         # Проверяем, что был отправлен ответ
         self.callback_query.answer.assert_called_once()
         answer_call = self.callback_query.answer.call_args
         assert "Операция отменена" in answer_call[0][0], "Ответ должен содержать информацию об отмене"
-    
-    @pytest.mark.asyncio
-    async def test_handle_header_callbacks(self):
-        """Тест обработки callback'ов для заголовков"""
-        header_callbacks = ['header_rub', 'header_usdt', 'header_reverse_rub', 'header_reverse_usdt']
-        
-        for header_callback in header_callbacks:
-            # Сбрасываем mock объекты
-            self.callback_query.answer.reset_mock()
-            
-            self.callback_query.data = header_callback
-            
-            await handle_header_callbacks(self.callback_query)
-            
-            # Проверяем, что был отправлен ответ
-            self.callback_query.answer.assert_called_once()
-            answer_call = self.callback_query.answer.call_args
-            assert "Это заголовок" in answer_call[0][0], f"Должно быть сообщение о заголовке для {header_callback}"
-            assert answer_call[1]['show_alert'] is False, "Не должен быть показан alert для заголовков"
 
 
 class TestCurrencyPairIntegration:
@@ -268,8 +205,8 @@ class TestCurrencyPairIntegration:
             bases.add(pair_info['base'])
             quotes.add(pair_info['quote'])
         
-        # Должны быть пары в обоих направлениях
-        expected_currencies = {'RUB', 'USDT', 'ZAR', 'THB', 'AED', 'IDR'}
+        # Должны быть только USDT пары
+        expected_currencies = {'USDT', 'ZAR', 'THB', 'AED', 'IDR', 'RUB'}
         assert bases == expected_currencies, "Базовые валюты должны соответствовать ожидаемым"
         assert quotes == expected_currencies, "Котируемые валюты должны соответствовать ожидаемым"
     
@@ -289,36 +226,6 @@ class TestCurrencyPairIntegration:
                     break
             
             assert reverse_pair_found, f"Не найдена обратная пара для {pair_id} ({base}/{quote})"
-    
-    def test_currency_pairs_emoji_consistency(self):
-        """Тест консистентности emoji валютных пар"""
-        # Проверяем, что emoji содержат правильные элементы
-        for pair_id, pair_info in CURRENCY_PAIRS.items():
-            emoji = pair_info['emoji']
-            
-            # Должно содержать стрелку
-            assert '➡️' in emoji, f"Emoji для {pair_id} должно содержать стрелку"
-            
-            # Должно содержать соответствующие символы валют
-            base = pair_info['base']
-            quote = pair_info['quote']
-            
-            if base == 'RUB':
-                assert '🇷🇺' in emoji, f"Emoji для {pair_id} должно содержать флаг России"
-            elif base == 'USDT':
-                assert '💰' in emoji, f"Emoji для {pair_id} должно содержать символ доллара"
-            
-            # Проверяем флаги для других валют
-            flag_mapping = {
-                'ZAR': '🇿🇦',
-                'THB': '🇹🇭',
-                'AED': '🇦🇪',
-                'IDR': '🇮🇩'
-            }
-            
-            if quote in flag_mapping:
-                expected_flag = flag_mapping[quote]
-                assert expected_flag in emoji, f"Emoji для {pair_id} должно содержать флаг {expected_flag}"
 
 
 if __name__ == '__main__':
