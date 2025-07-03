@@ -291,9 +291,7 @@ class APIService:
         """
         logger.info("Getting all exchange rates from Rapira API")
         
-        # ПРИНУДИТЕЛЬНО ИСПОЛЬЗУЕМ ТОЛЬКО РЕАЛЬНЫЕ ДАННЫЕ ОТ RAPIRA API
-        # if config.DEBUG_MODE:
-        #     return await self._get_mock_all_rates()
+        # Всегда используем реальные данные от Rapira API
         
         # Real API call to Rapira - получаем все курсы одним запросом
         try:
@@ -468,10 +466,11 @@ class APIService:
     
     async def _calculate_cross_rate(self, pair: str, all_rates: Dict[str, ExchangeRate]) -> Optional[ExchangeRate]:
         """
-        Calculate cross rate for currency pair using base currencies (USD, USDT, RUB)
+        Calculate cross rate for currency pair using crypto base currencies (USDT, BTC, ETH, TON)
+        Specifically designed for RUB/crypto and crypto/RUB pairs
         
         Args:
-            pair: Currency pair (e.g., 'RUB/ZAR')
+            pair: Currency pair (e.g., 'RUB/BTC', 'BTC/RUB')
             all_rates: Dictionary of all available rates
         
         Returns:
@@ -480,7 +479,66 @@ class APIService:
         try:
             base_currency, quote_currency = pair.split('/')
             
-            # Попытка вычислить через USD
+            # Специальная логика для криптовалютных пар с рублем
+            if (base_currency == 'RUB' and quote_currency in ['BTC', 'ETH', 'TON', 'USDT']) or \
+               (quote_currency == 'RUB' and base_currency in ['BTC', 'ETH', 'TON', 'USDT']):
+                
+                # Для пар RUB/CRYPTO
+                if base_currency == 'RUB':
+                    # Специальный случай для RUB/USDT
+                    if quote_currency == 'USDT':
+                        usdt_rub_rate = self._find_direct_rate('USDT/RUB', all_rates)
+                        if usdt_rub_rate:
+                            # RUB/USDT = 1 / USDT/RUB
+                            cross_rate = 1.0 / usdt_rub_rate
+                            
+                            logger.debug(f"Calculated {pair} rate: 1 / {usdt_rub_rate:.2f} = {cross_rate:.8f}")
+                            
+                            return ExchangeRate(
+                                pair=pair,
+                                rate=round(cross_rate, 8),
+                                timestamp=datetime.now().isoformat(),
+                                source='calculated_via_usdt_rub'
+                            )
+                    else:
+                        # Ищем USDT/RUB и CRYPTO/USDT
+                        usdt_rub_rate = self._find_direct_rate('USDT/RUB', all_rates)
+                        crypto_usdt_rate = self._find_direct_rate(f'{quote_currency}/USDT', all_rates)
+                        
+                        if usdt_rub_rate and crypto_usdt_rate:
+                            # RUB/CRYPTO = (1/USDT/RUB) / CRYPTO/USDT = RUB/USDT / CRYPTO/USDT
+                            rub_usdt_rate = 1.0 / usdt_rub_rate
+                            cross_rate = rub_usdt_rate / crypto_usdt_rate
+                            
+                            logger.debug(f"Calculated {pair} rate: {rub_usdt_rate:.6f} / {crypto_usdt_rate:.6f} = {cross_rate:.8f}")
+                            
+                            return ExchangeRate(
+                                pair=pair,
+                                rate=round(cross_rate, 8),
+                                timestamp=datetime.now().isoformat(),
+                                source='calculated_via_usdt_rub'
+                            )
+                
+                # Для пар CRYPTO/RUB
+                elif quote_currency == 'RUB':
+                    # Ищем CRYPTO/USDT и USDT/RUB
+                    crypto_usdt_rate = self._find_direct_rate(f'{base_currency}/USDT', all_rates)
+                    usdt_rub_rate = self._find_direct_rate('USDT/RUB', all_rates)
+                    
+                    if crypto_usdt_rate and usdt_rub_rate:
+                        # CRYPTO/RUB = CRYPTO/USDT * USDT/RUB
+                        cross_rate = crypto_usdt_rate * usdt_rub_rate
+                        
+                        logger.debug(f"Calculated {pair} rate: {crypto_usdt_rate:.6f} * {usdt_rub_rate:.2f} = {cross_rate:.2f}")
+                        
+                        return ExchangeRate(
+                            pair=pair,
+                            rate=round(cross_rate, 8),
+                            timestamp=datetime.now().isoformat(),
+                            source='calculated_via_usdt_rub'
+                        )
+            
+            # Попытка вычислить через USD (оригинальная логика)
             usd_base_rate = self._find_usd_rate(base_currency, all_rates)
             usd_quote_rate = self._find_usd_rate(quote_currency, all_rates)
             
@@ -497,7 +555,7 @@ class APIService:
                     source='calculated_via_usd'
                 )
             
-            # Попытка вычислить через USDT
+            # Попытка вычислить через USDT (оригинальная логика)
             usdt_base_rate = self._find_usdt_rate(base_currency, all_rates)
             usdt_quote_rate = self._find_usdt_rate(quote_currency, all_rates)
             
@@ -548,6 +606,22 @@ class APIService:
                 if symbol.startswith('USDT'):
                     return 1.0 / rate if rate != 0 else None
                 return rate
+        
+        return None
+    
+    def _find_direct_rate(self, pair: str, all_rates: Dict[str, ExchangeRate]) -> Optional[float]:
+        """Find direct rate for a specific pair format"""
+        # Ищем точное совпадение пары
+        possible_symbols = [
+            pair,  # USDT/RUB
+            pair.replace('/', ''),  # USDTRUB
+            pair.replace('/', '_'),  # USDT_RUB
+            pair.replace('/', '-'),  # USDT-RUB
+        ]
+        
+        for symbol in possible_symbols:
+            if symbol in all_rates:
+                return all_rates[symbol].rate
         
         return None
     
@@ -808,24 +882,13 @@ class APIService:
             'service': 'rapira_api',
             'status': 'unknown',
             'response_time_ms': None,
-            'debug_mode': config.DEBUG_MODE,
+            'production_mode': True,
             'api_url': self.base_url,
             'has_api_key': bool(self.api_key),
             'session_active': self.session is not None and not self.session.closed
         }
         
-        # ПРИНУДИТЕЛЬНО ОТКЛЮЧАЕМ MOCK HEALTH CHECK
-        # if config.DEBUG_MODE:
-        #     # In debug mode, perform mock health check
-        #     await asyncio.sleep(0.1)  # Simulate network delay
-        #     health_data.update({
-        #         'status': 'healthy',
-        #         'response_time_ms': 100,
-        #         'message': 'Mock health check (debug mode)',
-        #         'rates_available': len(config.SUPPORTED_PAIRS)
-        #     })
-        #     logger.info("Health check: OK (debug mode)")
-        #     return health_data
+        # Всегда выполняем реальную проверку здоровья API
         
         # Real health check - проверяем основной эндпоинт
         start_time = asyncio.get_event_loop().time()
@@ -886,10 +949,7 @@ class APIService:
         """
         logger.info("Getting supported currency pairs")
         
-        # ПРИНУДИТЕЛЬНО ОТКЛЮЧАЕМ MOCK ДАННЫЕ
-        # if config.DEBUG_MODE:
-        #     # Return configured pairs in debug mode
-        #     return config.SUPPORTED_PAIRS.copy()
+        # Всегда получаем реальные данные от API
         
         try:
             success, data, status_code = await self._make_request(
