@@ -6,66 +6,129 @@
 
 from typing import Dict, Any, Optional
 
-# Константы валютных пар (криптовалюты с рублем)
+# Константы валютных пар (поддерживаемые APILayer и Rapira API)
 CURRENCY_PAIRS = {
-    # RUB пары с криптовалютами
-    'rub_btc': {
-        'name': 'RUB/BTC',
-        'base': 'RUB',
-        'quote': 'BTC',
-        'emoji': '₿',
-        'description': 'Покупка Bitcoin за рубли'
-    },
-    'rub_ton': {
-        'name': 'RUB/TON',
-        'base': 'RUB',
-        'quote': 'TON',
-        'emoji': '💎',
-        'description': 'Покупка Toncoin за рубли'
-    },
-    'rub_usdt': {
-        'name': 'RUB/USDT',
-        'base': 'RUB',
-        'quote': 'USDT',
-        'emoji': '🟢',
-        'description': 'Покупка USDT за рубли'
-    },
-    'rub_eth': {
-        'name': 'RUB/ETH',
-        'base': 'RUB',
-        'quote': 'ETH',
-        'emoji': '🔷',
-        'description': 'Покупка Ethereum за рубли'
-    },
-    
-    # Обратные пары (криптовалюты к рублю)
-    'btc_rub': {
-        'name': 'BTC/RUB',
+    # Криптовалютные пары
+    'btcusdt': {
+        'name': 'BTC/USDT',
         'base': 'BTC',
-        'quote': 'RUB',
+        'quote': 'USDT',
         'emoji': '₿',
-        'description': 'Продажа Bitcoin за рубли'
+        'description': 'Bitcoin к Tether'
     },
-    'ton_rub': {
-        'name': 'TON/RUB',
+    'ethusdt': {
+        'name': 'ETH/USDT',
+        'base': 'ETH',
+        'quote': 'USDT',
+        'emoji': '🔷',
+        'description': 'Ethereum к Tether'
+    },
+    'tonusdt': {
+        'name': 'TON/USDT',
         'base': 'TON',
-        'quote': 'RUB',
+        'quote': 'USDT',
         'emoji': '💎',
-        'description': 'Продажа Toncoin за рубли'
+        'description': 'Toncoin к Tether'
     },
-    'usdt_rub': {
+    'usdtrub': {
         'name': 'USDT/RUB',
         'base': 'USDT',
         'quote': 'RUB',
         'emoji': '🟢',
-        'description': 'Продажа USDT за рубли'
+        'description': 'Tether к рублю'
     },
-    'eth_rub': {
+    'btcrub': {
+        'name': 'BTC/RUB',
+        'base': 'BTC',
+        'quote': 'RUB',
+        'emoji': '₿',
+        'description': 'Bitcoin к рублю'
+    },
+    'ethrub': {
         'name': 'ETH/RUB',
         'base': 'ETH',
         'quote': 'RUB',
         'emoji': '🔷',
-        'description': 'Продажа Ethereum за рубли'
+        'description': 'Ethereum к рублю'
+    },
+    'tonrub': {
+        'name': 'TON/RUB',
+        'base': 'TON',
+        'quote': 'RUB',
+        'emoji': '💎',
+        'description': 'Toncoin к рублю'
+    },
+    
+    # Фиатные пары
+    'usdrub': {
+        'name': 'USD/RUB',
+        'base': 'USD',
+        'quote': 'RUB',
+        'emoji': '💵',
+        'description': 'Доллар к рублю'
+    },
+    'eurrub': {
+        'name': 'EUR/RUB',
+        'base': 'EUR',
+        'quote': 'RUB',
+        'emoji': '💶',
+        'description': 'Евро к рублю'
+    },
+    'rubzar': {
+        'name': 'RUB/ZAR',
+        'base': 'RUB',
+        'quote': 'ZAR',
+        'emoji': '🇿🇦',
+        'description': 'Рубль к южноафриканскому рэнду'
+    },
+    'zarrub': {
+        'name': 'ZAR/RUB',
+        'base': 'ZAR',
+        'quote': 'RUB',
+        'emoji': '🇿🇦',
+        'description': 'Южноафриканский рэнд к рублю'
+    },
+    'rubthb': {
+        'name': 'RUB/THB',
+        'base': 'RUB',
+        'quote': 'THB',
+        'emoji': '🇹🇭',
+        'description': 'Рубль к тайскому бату'
+    },
+    'thbrub': {
+        'name': 'THB/RUB',
+        'base': 'THB',
+        'quote': 'RUB',
+        'emoji': '🇹🇭',
+        'description': 'Тайский бат к рублю'
+    },
+    'rubaed': {
+        'name': 'RUB/AED',
+        'base': 'RUB',
+        'quote': 'AED',
+        'emoji': '🇦🇪',
+        'description': 'Рубль к дирхаму ОАЭ'
+    },
+    'aedrub': {
+        'name': 'AED/RUB',
+        'base': 'AED',
+        'quote': 'RUB',
+        'emoji': '🇦🇪',
+        'description': 'Дирхам ОАЭ к рублю'
+    },
+    'rubidr': {
+        'name': 'RUB/IDR',
+        'base': 'RUB',
+        'quote': 'IDR',
+        'emoji': '🇮🇩',
+        'description': 'Рубль к индонезийской рупии'
+    },
+    'idrrub': {
+        'name': 'IDR/RUB',
+        'base': 'IDR',
+        'quote': 'RUB',
+        'emoji': '🇮🇩',
+        'description': 'Индонезийская рупия к рублю'
     }
 }
 
@@ -163,7 +226,7 @@ def format_currency_symbol(currency: str) -> str:
     Форматирование символа валюты с эмодзи
     
     Args:
-        currency: Код валюты (BTC, ETH, TON, USDT, RUB)
+        currency: Код валюты (BTC, ETH, TON, USDT, RUB, USD, EUR, ZAR, THB, AED, IDR)
         
     Returns:
         str: Отформатированный символ валюты
@@ -173,7 +236,13 @@ def format_currency_symbol(currency: str) -> str:
         'ETH': '🔷 ETH', 
         'TON': '💎 TON',
         'USDT': '🟢 USDT',
-        'RUB': '🇷🇺 RUB'
+        'RUB': '🇷🇺 RUB',
+        'USD': '💵 USD',
+        'EUR': '💶 EUR',
+        'ZAR': '🇿🇦 ZAR',
+        'THB': '🇹🇭 THB',
+        'AED': '🇦🇪 AED',
+        'IDR': '🇮🇩 IDR'
     }
     return emoji_map.get(currency, currency)
 

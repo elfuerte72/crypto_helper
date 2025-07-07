@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Fiat Rates Service for Crypto Helper Bot
-Получает курсы фиатных валют из ExchangeRate-API
+Получает курсы фиатных валют из APILayer
 """
 
 import asyncio
@@ -15,7 +15,7 @@ import random
 try:
     from ..config import config
     from ..utils.logger import get_api_logger
-    from .api_service import ExchangeRate, RapiraAPIError
+    from .models import ExchangeRate, APILayerError
 except ImportError:
     # Handle direct execution
     import sys
@@ -23,18 +23,21 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
     from config import config
     from utils.logger import get_api_logger
-    from services.api_service import ExchangeRate, RapiraAPIError
+    from services.models import ExchangeRate, APILayerError
 
 logger = get_api_logger()
 
 
+# Используем APILayerError из models.py
+
+
 class FiatRatesService:
-    """Сервис для получения курсов фиатных валют"""
+    """Сервис для получения курсов фиатных валют через APILayer"""
     
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
-        # Используем бесплатный ExchangeRate-API
-        self.base_url = "https://api.exchangerate-api.com/v4/latest"
+        self.base_url = config.API_LAYER_URL
+        self.api_key = config.API_LAYER_KEY
         self.timeout = aiohttp.ClientTimeout(total=30)
         self._rate_limit_delay = 1.0
         self._last_request_time = 0.0
@@ -59,7 +62,8 @@ class FiatRatesService:
         if not self.session:
             headers = {
                 'User-Agent': 'CryptoHelper-Bot/1.0',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'apikey': self.api_key  # APILayer использует apikey в header
             }
             
             connector = aiohttp.TCPConnector(
@@ -77,14 +81,14 @@ class FiatRatesService:
                 connector=connector,
                 raise_for_status=False
             )
-            logger.info("Fiat rates session initialized")
+            logger.info("APILayer fiat rates session initialized")
     
     async def close_session(self):
         """Закрытие HTTP сессии"""
         if self.session:
             await self.session.close()
             self.session = None
-            logger.info("Fiat rates session closed")
+            logger.info("APILayer fiat rates session closed")
     
     async def _rate_limit(self):
         """Rate limiting"""
@@ -99,7 +103,7 @@ class FiatRatesService:
     
     async def get_rates_from_base(self, base_currency: str) -> Optional[Dict[str, float]]:
         """
-        Получает курсы всех валют относительно базовой
+        Получает курсы всех валют относительно базовой через APILayer
         
         Args:
             base_currency: Базовая валюта (например, 'USD')
@@ -112,27 +116,58 @@ class FiatRatesService:
         
         await self._rate_limit()
         
-        url = f"{self.base_url}/{base_currency}"
+        # APILayer endpoint для получения курсов
+        url = f"{self.base_url}/latest"
+        params = {
+            'base': base_currency,
+            'symbols': ','.join(self.supported_currencies)
+        }
         
         try:
-            async with self.session.get(url) as response:
+            async with self.session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
                     
-                    if 'rates' in data and isinstance(data['rates'], dict):
-                        logger.debug(f"Got {len(data['rates'])} rates from {base_currency}")
-                        return data['rates']
+                    # APILayer возвращает структуру:
+                    # {
+                    #   "success": true,
+                    #   "timestamp": 1234567890,
+                    #   "base": "USD",
+                    #   "date": "2024-01-01",
+                    #   "rates": {
+                    #     "EUR": 0.85,
+                    #     "RUB": 75.5
+                    #   }
+                    # }
+                    
+                    if data.get('success') and 'rates' in data:
+                        rates = data['rates']
+                        logger.debug(f"Got {len(rates)} rates from {base_currency} via APILayer")
+                        return rates
                     else:
-                        logger.error(f"Invalid response format from fiat API: {data}")
-                        return None
+                        error_msg = data.get('error', {}).get('info', 'Unknown error')
+                        logger.error(f"APILayer API error: {error_msg}")
+                        raise APILayerError(f"APILayer error: {error_msg}")
+                
+                elif response.status == 401:
+                    logger.error("APILayer authentication failed - check API key")
+                    raise APILayerError("Invalid API key", response.status)
+                
+                elif response.status == 429:
+                    logger.warning("APILayer rate limit exceeded")
+                    raise APILayerError("Rate limit exceeded", response.status)
+                
                 else:
                     error_text = await response.text()
-                    logger.error(f"Fiat API error {response.status}: {error_text}")
-                    return None
+                    logger.error(f"APILayer API error {response.status}: {error_text}")
+                    raise APILayerError(f"API error {response.status}: {error_text}", response.status)
                     
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error getting fiat rates from {base_currency}: {e}")
+            raise APILayerError(f"Network error: {str(e)}")
         except Exception as e:
-            logger.error(f"Error getting fiat rates from {base_currency}: {e}")
-            return None
+            logger.error(f"Unexpected error getting fiat rates from {base_currency}: {e}")
+            raise APILayerError(f"Unexpected error: {str(e)}")
     
     async def get_fiat_rate(self, from_currency: str, to_currency: str) -> Optional[float]:
         """
@@ -156,32 +191,40 @@ class FiatRatesService:
         if from_currency == to_currency:
             return 1.0
         
-        # Получаем курсы относительно исходной валюты
-        rates = await self.get_rates_from_base(from_currency)
-        
-        if rates and to_currency in rates:
-            rate = rates[to_currency]
-            logger.debug(f"Direct fiat rate {from_currency}/{to_currency}: {rate}")
-            return rate
-        
-        # Если прямого курса нет, пытаемся через USD
-        if from_currency != 'USD' and to_currency != 'USD':
-            usd_rates = await self.get_rates_from_base('USD')
+        try:
+            # Получаем курсы относительно исходной валюты
+            rates = await self.get_rates_from_base(from_currency)
             
-            if usd_rates and from_currency in usd_rates and to_currency in usd_rates:
-                # USD/from -> from/USD (инвертируем)
-                from_usd_rate = 1.0 / usd_rates[from_currency]
-                # USD/to -> прямой курс
-                to_usd_rate = usd_rates[to_currency]
+            if rates and to_currency in rates:
+                rate = rates[to_currency]
+                logger.debug(f"Direct fiat rate {from_currency}/{to_currency}: {rate}")
+                return rate
+            
+            # Если прямого курса нет, пытаемся через USD
+            if from_currency != 'USD' and to_currency != 'USD':
+                usd_rates = await self.get_rates_from_base('USD')
                 
-                # from -> USD -> to
-                cross_rate = from_usd_rate * to_usd_rate
-                
-                logger.debug(f"Cross fiat rate {from_currency}/{to_currency} via USD: {cross_rate}")
-                return cross_rate
-        
-        logger.warning(f"Could not calculate fiat rate for {from_currency}/{to_currency}")
-        return None
+                if usd_rates and from_currency in usd_rates and to_currency in usd_rates:
+                    # USD/from -> from/USD (инвертируем)
+                    from_usd_rate = 1.0 / usd_rates[from_currency]
+                    # USD/to -> прямой курс
+                    to_usd_rate = usd_rates[to_currency]
+                    
+                    # from -> USD -> to
+                    cross_rate = from_usd_rate * to_usd_rate
+                    
+                    logger.debug(f"Cross fiat rate {from_currency}/{to_currency} via USD: {cross_rate}")
+                    return cross_rate
+            
+            logger.warning(f"Could not calculate fiat rate for {from_currency}/{to_currency}")
+            return None
+            
+        except APILayerError as e:
+            logger.error(f"APILayer error getting rate {from_currency}/{to_currency}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting rate {from_currency}/{to_currency}: {e}")
+            return None
     
     async def create_fiat_exchange_rate(
         self, 
@@ -206,7 +249,7 @@ class FiatRatesService:
             pair=pair,
             rate=round(rate, 6),
             timestamp=datetime.now().isoformat(),
-            source='exchangerate-api'
+            source='apilayer'
         )
     
     async def get_fiat_exchange_rate(self, pair: str) -> Optional[ExchangeRate]:
@@ -235,6 +278,70 @@ class FiatRatesService:
         except Exception as e:
             logger.error(f"Error getting fiat exchange rate for {pair}: {e}")
             return None
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Проверка здоровья APILayer API
+        
+        Returns:
+            Словарь с результатами проверки
+        """
+        logger.info("Performing APILayer health check")
+        
+        health_data = {
+            'timestamp': datetime.now().isoformat(),
+            'service': 'apilayer_fiat_rates',
+            'status': 'unknown',
+            'response_time_ms': None,
+            'api_url': self.base_url,
+            'has_api_key': bool(self.api_key),
+            'session_active': self.session is not None and not self.session.closed
+        }
+        
+        # Выполняем тестовый запрос к APILayer
+        start_time = asyncio.get_event_loop().time()
+        try:
+            # Простой запрос для проверки
+            rate = await self.get_fiat_rate('USD', 'EUR')
+            
+            end_time = asyncio.get_event_loop().time()
+            response_time = (end_time - start_time) * 1000
+            
+            health_data['response_time_ms'] = round(response_time, 2)
+            
+            if rate is not None:
+                health_data.update({
+                    'status': 'healthy',
+                    'message': f'APILayer responding normally (USD/EUR: {rate:.6f})',
+                    'sample_rate': rate
+                })
+            else:
+                health_data.update({
+                    'status': 'degraded',
+                    'message': 'APILayer returned no rate data'
+                })
+                
+        except APILayerError as e:
+            end_time = asyncio.get_event_loop().time()
+            response_time = (end_time - start_time) * 1000
+            health_data.update({
+                'response_time_ms': round(response_time, 2),
+                'status': 'unhealthy',
+                'message': f'APILayer error: {str(e)}',
+                'error': str(e)
+            })
+        except Exception as e:
+            end_time = asyncio.get_event_loop().time()
+            response_time = (end_time - start_time) * 1000
+            health_data.update({
+                'response_time_ms': round(response_time, 2),
+                'status': 'unhealthy',
+                'message': f'Health check failed: {str(e)}',
+                'error': str(e)
+            })
+        
+        logger.info(f"APILayer health check completed: {health_data['status']} ({health_data.get('response_time_ms', 'N/A')}ms)")
+        return health_data
 
 
 # Глобальный экземпляр сервиса

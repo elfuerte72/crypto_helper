@@ -22,6 +22,7 @@ import random
 try:
     from ..config import config
     from ..utils.logger import get_api_logger
+    from .models import ExchangeRate, RapiraAPIError, APILayerError
 except ImportError:
     # Handle direct execution
     import sys
@@ -29,48 +30,16 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
     from config import config
     from utils.logger import get_api_logger
+    from services.models import ExchangeRate, RapiraAPIError, APILayerError
 
 logger = get_api_logger()
 
 
-@dataclass
-class ExchangeRate:
-    """Data class for exchange rate information"""
-    pair: str
-    rate: float
-    timestamp: str
-    source: str = "rapira"
-    bid: Optional[float] = None
-    ask: Optional[float] = None
-    high_24h: Optional[float] = None
-    low_24h: Optional[float] = None
-    volume_24h: Optional[float] = None
-    change_24h: Optional[float] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization"""
-        return asdict(self)
-    
-    def is_valid(self) -> bool:
-        """Check if exchange rate data is valid"""
-        return (
-            self.rate > 0 and
-            self.pair and
-            self.timestamp and
-            len(self.pair.split('/')) == 2
-        )
-
-
-class RapiraAPIError(Exception):
-    """Custom exception for Rapira API errors"""
-    def __init__(self, message: str, status_code: Optional[int] = None, response_data: Optional[Dict] = None):
-        super().__init__(message)
-        self.status_code = status_code
-        self.response_data = response_data
+# Импортируем модели из отдельного файла
 
 
 class APIService:
-    """Service for handling external API calls to Rapira API"""
+    """Service for handling external API calls to Rapira API and APILayer"""
     
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
@@ -79,6 +48,10 @@ class APIService:
         self.timeout = aiohttp.ClientTimeout(total=config.API_TIMEOUT)
         self._rate_limit_delay = 1.0  # Minimum delay between requests
         self._last_request_time = 0.0
+        
+        # Определяем фиатные валюты
+        self.fiat_currencies = {'USD', 'EUR', 'RUB', 'ZAR', 'THB', 'AED', 'IDR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY'}
+        self.crypto_currencies = {'BTC', 'ETH', 'TON', 'USDT', 'USDC', 'LTC', 'TRX', 'BNB', 'DAI', 'DOGE', 'ETC', 'OP', 'XMR', 'SOL', 'NOT'}
     
     async def __aenter__(self):
         """Async context manager entry"""
@@ -329,43 +302,113 @@ class APIService:
     async def get_exchange_rate(self, pair: str) -> Optional[ExchangeRate]:
         """
         Get exchange rate for a specific currency pair
+        Uses Rapira API for crypto pairs and APILayer for fiat pairs
         
         Args:
-            pair: Currency pair (e.g., 'RUB/ZAR')
+            pair: Currency pair (e.g., 'RUB/ZAR', 'BTC/USDT')
         
         Returns:
             ExchangeRate object or None if failed
         """
         logger.info(f"Getting exchange rate for {pair}")
         
-        # Validate pair
-        if pair not in config.SUPPORTED_PAIRS:
-            logger.error(f"Unsupported currency pair: {pair}")
-            raise RapiraAPIError(f"Unsupported currency pair: {pair}")
-        
-        # Получаем все курсы и ищем нужный
         try:
+            # Определяем тип пары (крипто/фиат)
+            base_currency, quote_currency = pair.split('/')
+            
+            # Если обе валюты фиатные - используем APILayer
+            if (base_currency in self.fiat_currencies and 
+                quote_currency in self.fiat_currencies):
+                logger.info(f"Using APILayer for fiat pair {pair}")
+                return await self._get_fiat_exchange_rate(pair)
+            
+            # Если есть криптовалюта - используем Rapira API
+            elif (base_currency in self.crypto_currencies or 
+                  quote_currency in self.crypto_currencies):
+                logger.info(f"Using Rapira API for crypto pair {pair}")
+                return await self._get_crypto_exchange_rate(pair)
+            
+            else:
+                logger.error(f"Unknown currency types in pair: {pair}")
+                raise RapiraAPIError(f"Unknown currency types in pair: {pair}")
+                
+        except ValueError:
+            logger.error(f"Invalid pair format: {pair}")
+            raise RapiraAPIError(f"Invalid pair format: {pair}")
+        except Exception as e:
+            logger.error(f"Unexpected error getting rate for {pair}: {e}")
+            raise RapiraAPIError(f"Unexpected error: {str(e)}")
+    
+    async def _get_fiat_exchange_rate(self, pair: str) -> Optional[ExchangeRate]:
+        """
+        Get fiat exchange rate using APILayer
+        
+        Args:
+            pair: Fiat currency pair (e.g., 'USD/ZAR')
+        
+        Returns:
+            ExchangeRate object or None if failed
+        """
+        try:
+            logger.debug(f"Getting fiat rate for {pair} via APILayer")
+            
+            # Ленивый импорт для избежания циклических импортов
+            from .fiat_rates_service import fiat_rates_service
+            
+            # Используем fiat_rates_service для получения курса
+            fiat_rate = await fiat_rates_service.get_fiat_exchange_rate(pair)
+            
+            if fiat_rate:
+                logger.debug(f"Got fiat rate for {pair}: {fiat_rate.rate}")
+                return fiat_rate
+            else:
+                logger.warning(f"No fiat rate found for {pair}")
+                raise RapiraAPIError(f"Fiat rate for {pair} not found")
+                
+        except APILayerError as e:
+            logger.error(f"APILayer error for {pair}: {e}")
+            raise RapiraAPIError(f"APILayer error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error getting fiat rate for {pair}: {e}")
+            raise RapiraAPIError(f"Unexpected error: {str(e)}")
+    
+    async def _get_crypto_exchange_rate(self, pair: str) -> Optional[ExchangeRate]:
+        """
+        Get crypto exchange rate using Rapira API
+        
+        Args:
+            pair: Crypto currency pair (e.g., 'BTC/USDT')
+        
+        Returns:
+            ExchangeRate object or None if failed
+        """
+        try:
+            logger.debug(f"Getting crypto rate for {pair} via Rapira API")
+            
+            # Получаем все курсы из Rapira API и ищем нужный
             all_rates = await self.get_all_rates()
             if not all_rates:
-                raise RapiraAPIError("Failed to get exchange rates")
+                raise RapiraAPIError("Failed to get exchange rates from Rapira")
             
             # Ищем курс для запрашиваемой пары
             rate = self._find_rate_for_pair(pair, all_rates)
             if rate:
+                logger.debug(f"Found direct crypto rate for {pair}: {rate.rate}")
                 return rate
             
             # Если прямого курса нет, пытаемся вычислить через базовые валюты
             calculated_rate = await self._calculate_cross_rate(pair, all_rates)
             if calculated_rate:
+                logger.debug(f"Calculated crypto rate for {pair}: {calculated_rate.rate}")
                 return calculated_rate
             
-            logger.error(f"Exchange rate for {pair} not found")
-            raise RapiraAPIError(f"Exchange rate for {pair} not found")
+            logger.error(f"Crypto exchange rate for {pair} not found")
+            raise RapiraAPIError(f"Crypto exchange rate for {pair} not found")
                 
         except RapiraAPIError:
             raise
         except Exception as e:
-            logger.error(f"Unexpected error getting rate for {pair}: {e}")
+            logger.error(f"Unexpected error getting crypto rate for {pair}: {e}")
             raise RapiraAPIError(f"Unexpected error: {str(e)}")
     
     def _parse_all_rates_response(self, data: Dict) -> Dict[str, ExchangeRate]:
@@ -873,7 +916,7 @@ class APIService:
     
     async def health_check(self) -> Dict[str, Any]:
         """
-        Check API service health with detailed information
+        Check API service health with detailed information for both Rapira and APILayer
         
         Returns:
             Dictionary with health check results
@@ -882,65 +925,73 @@ class APIService:
         
         health_data = {
             'timestamp': datetime.now().isoformat(),
-            'service': 'rapira_api',
+            'service': 'unified_api_service',
             'status': 'unknown',
-            'response_time_ms': None,
-            'production_mode': True,
-            'api_url': self.base_url,
-            'has_api_key': bool(self.api_key),
-            'session_active': self.session is not None and not self.session.closed
+            'rapira_api': {},
+            'apilayer_api': {}
         }
         
-        # Всегда выполняем реальную проверку здоровья API
-        
-        # Real health check - проверяем основной эндпоинт
-        start_time = asyncio.get_event_loop().time()
+        # Проверяем Rapira API
         try:
+            rapira_start = asyncio.get_event_loop().time()
             success, data, status_code = await self._make_request(
                 method='GET',
-                endpoint='',  # Используем базовый URL напрямую
+                endpoint='',
                 retry_count=1,
-                timeout=10.0  # Short timeout for health check
+                timeout=10.0
             )
             
-            end_time = asyncio.get_event_loop().time()
-            response_time = (end_time - start_time) * 1000
+            rapira_end = asyncio.get_event_loop().time()
+            rapira_time = (rapira_end - rapira_start) * 1000
             
-            health_data['response_time_ms'] = round(response_time, 2)
-            health_data['status_code'] = status_code
-            
-            if success and data:
-                # Проверяем структуру ответа Rapira API
-                if ('data' in data and isinstance(data['data'], list) and len(data['data']) > 0):
-                    rates_count = len(data['data'])
-                    health_data.update({
-                        'status': 'healthy',
-                        'message': f'API is responding normally with {rates_count} rates',
-                        'rates_available': rates_count
-                    })
-                else:
-                    health_data.update({
-                        'status': 'degraded',
-                        'message': f'API returned unexpected response format',
-                        'response_preview': str(data)[:200] if data else None
-                    })
+            if success and data and 'data' in data:
+                rates_count = len(data['data']) if isinstance(data['data'], list) else 0
+                health_data['rapira_api'] = {
+                    'status': 'healthy',
+                    'response_time_ms': round(rapira_time, 2),
+                    'rates_available': rates_count,
+                    'message': f'Rapira API responding with {rates_count} rates'
+                }
             else:
-                health_data.update({
+                health_data['rapira_api'] = {
                     'status': 'unhealthy',
-                    'message': f'API request failed with status {status_code}'
-                })
+                    'response_time_ms': round(rapira_time, 2),
+                    'message': f'Rapira API failed with status {status_code}'
+                }
                 
         except Exception as e:
-            end_time = asyncio.get_event_loop().time()
-            response_time = (end_time - start_time) * 1000
-            health_data.update({
-                'response_time_ms': round(response_time, 2),
+            health_data['rapira_api'] = {
                 'status': 'unhealthy',
-                'message': f'Health check failed: {str(e)}',
-                'error': str(e)
-            })
+                'message': f'Rapira API error: {str(e)}'
+            }
         
-        logger.info(f"Health check completed: {health_data['status']} ({health_data.get('response_time_ms', 'N/A')}ms)")
+        # Проверяем APILayer
+        try:
+            from .fiat_rates_service import fiat_rates_service
+            apilayer_health = await fiat_rates_service.health_check()
+            health_data['apilayer_api'] = apilayer_health
+                
+        except Exception as e:
+            health_data['apilayer_api'] = {
+                'status': 'unhealthy',
+                'message': f'APILayer error: {str(e)}'
+            }
+        
+        # Определяем общий статус
+        rapira_ok = health_data['rapira_api'].get('status') == 'healthy'
+        apilayer_ok = health_data['apilayer_api'].get('status') == 'healthy'
+        
+        if rapira_ok and apilayer_ok:
+            health_data['status'] = 'healthy'
+            health_data['message'] = 'Both Rapira and APILayer are operational'
+        elif rapira_ok or apilayer_ok:
+            health_data['status'] = 'degraded'
+            health_data['message'] = 'One API service is down'
+        else:
+            health_data['status'] = 'unhealthy'
+            health_data['message'] = 'Both API services are down'
+        
+        logger.info(f"Health check completed: {health_data['status']}")
         return health_data
     
     async def get_supported_pairs(self) -> Optional[list[str]]:
@@ -980,3 +1031,37 @@ class APIService:
 
 # Global API service instance
 api_service = APIService()
+
+
+def determine_pair_type(pair: str) -> str:
+    """
+    Determine if a currency pair is crypto, fiat, or mixed
+    
+    Args:
+        pair: Currency pair (e.g., 'BTC/USDT', 'USD/ZAR')
+    
+    Returns:
+        str: 'crypto', 'fiat', or 'mixed'
+    """
+    try:
+        base_currency, quote_currency = pair.split('/')
+        
+        fiat_currencies = {'USD', 'EUR', 'RUB', 'ZAR', 'THB', 'AED', 'IDR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY'}
+        crypto_currencies = {'BTC', 'ETH', 'TON', 'USDT', 'USDC', 'LTC', 'TRX', 'BNB', 'DAI', 'DOGE', 'ETC', 'OP', 'XMR', 'SOL', 'NOT'}
+        
+        base_is_fiat = base_currency in fiat_currencies
+        quote_is_fiat = quote_currency in fiat_currencies
+        base_is_crypto = base_currency in crypto_currencies
+        quote_is_crypto = quote_currency in crypto_currencies
+        
+        if base_is_fiat and quote_is_fiat:
+            return 'fiat'
+        elif base_is_crypto and quote_is_crypto:
+            return 'crypto'
+        elif (base_is_crypto or quote_is_crypto) and (base_is_fiat or quote_is_fiat):
+            return 'mixed'
+        else:
+            return 'unknown'
+            
+    except ValueError:
+        return 'invalid'

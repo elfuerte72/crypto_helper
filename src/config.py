@@ -25,6 +25,13 @@ class Config:
         'https://api.rapira.net/open/market/rates'
     )
     
+    # APILayer Configuration
+    API_LAYER_KEY: str = os.getenv('API_LAYER_KEY', '')
+    API_LAYER_URL: str = os.getenv(
+        'API_LAYER_URL',
+        'https://api.apilayer.com/exchangerates_data'
+    )
+    
     # Development Settings
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
     
