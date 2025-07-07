@@ -31,8 +31,10 @@ logger = get_api_logger()
 class HealthCheckServer:
     """HTTP server for health checks and metrics"""
     
-    def __init__(self, port: int = 8080):
-        self.port = port
+    def __init__(self, port: int = None):
+        # Heroku устанавливает PORT через переменную окружения
+        import os
+        self.port = port or int(os.getenv('PORT', 8080))
         self.app = web.Application()
         self.setup_routes()
     
@@ -277,12 +279,11 @@ class HealthCheckServer:
         return runner
 
 
-# Global health check server instance
-health_server = HealthCheckServer()
-
-
 async def start_health_server():
     """Start the health check server as a background task"""
+    import os
+    port = int(os.getenv('PORT', 8080))
+    health_server = HealthCheckServer(port=port)
     return await health_server.start()
 
 

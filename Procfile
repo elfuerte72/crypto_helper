@@ -1,0 +1,1 @@
+web: python -c "import asyncio; from src.main import main; from src.health_check import start_health_server; asyncio.run(asyncio.gather(start_health_server(), main()))" 
