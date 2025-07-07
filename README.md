@@ -71,25 +71,25 @@ API_LAYER_URL=https://api.apilayer.com/exchangerates_data
 
 **Быстрая проверка (30 секунд):**
 ```bash
-python quick_test.py
+python APILayer/quick_test.py
 ```
 
 **Проверка статуса подписок:**
 ```bash
-python check_subscriptions.py
+python APILayer/check_subscriptions.py
+```
+
+**Полная демонстрация:**
+```bash
+python APILayer/demo.py
 ```
 
 **Полное тестирование:**
 ```bash
-python test_apilayer_full.py
+python APILayer/test_apilayer_full.py
 ```
 
-**Автоматический запуск всех тестов:**
-```bash
-python run_tests.py
-```
-
-📖 **Подробная инструкция по тестированию**: [TESTING_INSTRUCTIONS.md](TESTING_INSTRUCTIONS.md)
+📖 **Подробная документация**: [APILayer/README.md](APILayer/README.md)
 
 ### 4. Запуск бота
 
@@ -167,14 +167,17 @@ crypto_helpler/
 │   │   └── models.py              # Модели данных
 │   ├── handlers/                  # Обработчики команд
 │   └── utils/                     # Утилиты
-├── tests/                         # Тесты
+├── APILayer/                      # Файлы интеграции APILayer
+│   ├── quick_test.py              # Быстрая проверка APILayer
+│   ├── check_subscriptions.py     # Проверка подписок
+│   ├── demo.py                    # Демонстрация работы
+│   ├── test_apilayer_full.py      # Полное тестирование
+│   ├── APILAYER_BOT_INTEGRATION_COMPLETE.md # Техническая документация
+│   ├── FINAL_INTEGRATION_REPORT.md # Финальный отчет
+│   └── README.md                  # Документация APILayer
+├── tests/                         # Основные тесты
 ├── docs/                          # Документация
 ├── memory-bank/                   # Контекст проекта
-├── quick_test.py                  # Быстрая проверка APILayer
-├── check_subscriptions.py         # Проверка подписок
-├── test_apilayer_full.py         # Полное тестирование
-├── run_tests.py                   # Автоматический запуск тестов
-├── TESTING_INSTRUCTIONS.md       # Инструкция по тестированию
 ├── requirements.txt               # Зависимости
 └── README.md                     # Этот файл
 ```
@@ -231,8 +234,8 @@ export LOG_LEVEL=DEBUG
 ## 📞 Поддержка
 
 Для вопросов по проекту:
-- Проверьте [TESTING_INSTRUCTIONS.md](TESTING_INSTRUCTIONS.md)
-- Запустите диагностику: `python check_subscriptions.py`
+- Проверьте [APILayer/README.md](APILayer/README.md)
+- Запустите диагностику: `python APILayer/check_subscriptions.py`
 - Проверьте статус APILayer: [https://status.apilayer.com/](https://status.apilayer.com/)
 
 ## 🏆 Преимущества

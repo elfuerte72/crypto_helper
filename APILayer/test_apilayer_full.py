@@ -14,7 +14,7 @@ import json
 from datetime import datetime
 
 # Добавляем src в path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from services.fiat_rates_service import fiat_rates_service
 from services.api_service import api_service

@@ -9,7 +9,7 @@ import sys
 import os
 
 # Добавляем src в path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from config import config
 
@@ -79,7 +79,7 @@ async def quick_test():
         # Тест 3: Интегрированный сервис
         print("\n3. Интегрированный Fiat Service:")
         try:
-            sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
             from services.fiat_rates_service import fiat_rates_service
             
             async with fiat_rates_service as service:

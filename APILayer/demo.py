@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 
 # Добавляем src в path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from services.api_service import api_service, determine_pair_type
 from config import config
