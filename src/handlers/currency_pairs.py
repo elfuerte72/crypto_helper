@@ -14,28 +14,28 @@ CURRENCY_PAIRS = {
         'base': 'RUB',
         'quote': 'BTC',
         'emoji': '₿',
-        'description': 'Российский рубль к Bitcoin'
+        'description': 'Покупка Bitcoin за рубли'
     },
     'rub_ton': {
         'name': 'RUB/TON',
         'base': 'RUB',
         'quote': 'TON',
         'emoji': '💎',
-        'description': 'Российский рубль к Toncoin'
+        'description': 'Покупка Toncoin за рубли'
     },
     'rub_usdt': {
         'name': 'RUB/USDT',
         'base': 'RUB',
         'quote': 'USDT',
         'emoji': '🟢',
-        'description': 'Российский рубль к Tether'
+        'description': 'Покупка USDT за рубли'
     },
     'rub_eth': {
         'name': 'RUB/ETH',
         'base': 'RUB',
         'quote': 'ETH',
         'emoji': '🔷',
-        'description': 'Российский рубль к Ethereum'
+        'description': 'Покупка Ethereum за рубли'
     },
     
     # Обратные пары (криптовалюты к рублю)
@@ -44,28 +44,28 @@ CURRENCY_PAIRS = {
         'base': 'BTC',
         'quote': 'RUB',
         'emoji': '₿',
-        'description': 'Bitcoin к Российскому рублю'
+        'description': 'Продажа Bitcoin за рубли'
     },
     'ton_rub': {
         'name': 'TON/RUB',
         'base': 'TON',
         'quote': 'RUB',
         'emoji': '💎',
-        'description': 'Toncoin к Российскому рублю'
+        'description': 'Продажа Toncoin за рубли'
     },
     'usdt_rub': {
         'name': 'USDT/RUB',
         'base': 'USDT',
         'quote': 'RUB',
         'emoji': '🟢',
-        'description': 'Tether к Российскому рублю'
+        'description': 'Продажа USDT за рубли'
     },
     'eth_rub': {
         'name': 'ETH/RUB',
         'base': 'ETH',
         'quote': 'RUB',
         'emoji': '🔷',
-        'description': 'Ethereum к Российскому рублю'
+        'description': 'Продажа Ethereum за рубли'
     }
 }
 

@@ -291,7 +291,10 @@ class APIService:
         """
         logger.info("Getting all exchange rates from Rapira API")
         
-        # Всегда используем реальные данные от Rapira API
+        # Проверяем нужно ли использовать mock-данные
+        if config.USE_MOCK_DATA:
+            logger.info("Using mock data for development")
+            return await self._get_mock_all_rates()
         
         # Real API call to Rapira - получаем все курсы одним запросом
         try:

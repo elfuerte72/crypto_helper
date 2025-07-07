@@ -32,6 +32,9 @@ class Config:
     API_TIMEOUT: int = int(os.getenv('API_TIMEOUT', '30'))
     API_RETRY_COUNT: int = int(os.getenv('API_RETRY_COUNT', '3'))
     
+    # Development Settings
+    USE_MOCK_DATA: bool = os.getenv('USE_MOCK_DATA', 'false').lower() == 'true'
+    
     # Supported Currency Pairs (криптовалюты с рублем)
     SUPPORTED_PAIRS = [
         # Основные пары из Rapira API (прямые)
@@ -72,8 +75,6 @@ class Config:
             'CRITICAL': logging.CRITICAL
         }
         return level_map.get(cls.LOG_LEVEL.upper(), logging.INFO)
-    
-
 
 
 # Create global config instance
