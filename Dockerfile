@@ -44,5 +44,5 @@ EXPOSE $PORT
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8080}/health/live || exit 1
 
-# Combined start command for bot and health server
-CMD ["sh", "-c", "python -c \"import asyncio; from src.main import main; from src.health_check import start_health_server; asyncio.run(asyncio.gather(start_health_server(), main()))\""]
+# Start application using dedicated starter script with internal keep-alive
+CMD ["python", "src/start_app.py"]
