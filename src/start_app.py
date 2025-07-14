@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Application starter script for Heroku deployment
-Starts both health check server and Telegram bot with internal keep-alive
+Application starter script
+Starts both health check server and Telegram bot
 """
 
 import asyncio

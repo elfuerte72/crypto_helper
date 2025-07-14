@@ -1,1 +1,0 @@
-web: python src/start_app.py 

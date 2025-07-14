@@ -1,5 +1,4 @@
 # Crypto Helper Telegram Bot - Production Dockerfile
-# Optimized for Heroku deployment
 
 FROM python:3.11-slim
 
@@ -37,7 +36,7 @@ RUN mkdir -p /app/logs /app/tmp && \
 # Switch to non-root user
 USER botuser
 
-# Expose port (Heroku will set PORT env var)
+# Expose port (configured via PORT env var)
 EXPOSE $PORT
 
 # Health check

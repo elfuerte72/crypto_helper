@@ -32,7 +32,7 @@ class HealthCheckServer:
     """HTTP server for health checks and metrics"""
     
     def __init__(self, port: int = None):
-        # Heroku устанавливает PORT через переменную окружения
+        # Порт может быть задан через переменную окружения
         import os
         self.port = port or int(os.getenv('PORT', 8080))
         self.app = web.Application()
