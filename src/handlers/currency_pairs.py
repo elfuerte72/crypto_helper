@@ -9,27 +9,6 @@ from typing import Dict, Any, Optional
 # Константы валютных пар (поддерживаемые APILayer и Rapira API)
 CURRENCY_PAIRS = {
     # Криптовалютные пары
-    'btcusdt': {
-        'name': 'BTC/USDT',
-        'base': 'BTC',
-        'quote': 'USDT',
-        'emoji': '₿',
-        'description': 'Bitcoin к Tether'
-    },
-    'ethusdt': {
-        'name': 'ETH/USDT',
-        'base': 'ETH',
-        'quote': 'USDT',
-        'emoji': '🔷',
-        'description': 'Ethereum к Tether'
-    },
-    'tonusdt': {
-        'name': 'TON/USDT',
-        'base': 'TON',
-        'quote': 'USDT',
-        'emoji': '💎',
-        'description': 'Toncoin к Tether'
-    },
     'usdtrub': {
         'name': 'USDT/RUB',
         'base': 'USDT',
@@ -37,36 +16,15 @@ CURRENCY_PAIRS = {
         'emoji': '🟢',
         'description': 'Tether к рублю'
     },
-    'btcrub': {
-        'name': 'BTC/RUB',
-        'base': 'BTC',
-        'quote': 'RUB',
-        'emoji': '₿',
-        'description': 'Bitcoin к рублю'
-    },
-    'ethrub': {
-        'name': 'ETH/RUB',
-        'base': 'ETH',
-        'quote': 'RUB',
-        'emoji': '🔷',
-        'description': 'Ethereum к рублю'
-    },
-    'tonrub': {
-        'name': 'TON/RUB',
-        'base': 'TON',
-        'quote': 'RUB',
-        'emoji': '💎',
-        'description': 'Toncoin к рублю'
+    'rubusdt': {
+        'name': 'RUB/USDT',
+        'base': 'RUB',
+        'quote': 'USDT',
+        'emoji': '🇷🇺',
+        'description': 'Рубль к Tether'
     },
     
     # Фиатные пары
-    'usdrub': {
-        'name': 'USD/RUB',
-        'base': 'USD',
-        'quote': 'RUB',
-        'emoji': '💵',
-        'description': 'Доллар к рублю'
-    },
     'eurrub': {
         'name': 'EUR/RUB',
         'base': 'EUR',
@@ -169,7 +127,9 @@ def get_all_currency_pairs() -> Dict[str, Dict[str, Any]]:
     return CURRENCY_PAIRS.copy()
 
 
-def get_currency_pairs_by_base(base_currency: str) -> Dict[str, Dict[str, Any]]:
+def get_currency_pairs_by_base(
+    base_currency: str
+) -> Dict[str, Dict[str, Any]]:
     """
     Получение валютных пар по базовой валюте
     
@@ -185,7 +145,9 @@ def get_currency_pairs_by_base(base_currency: str) -> Dict[str, Dict[str, Any]]:
     }
 
 
-def get_currency_pairs_by_quote(quote_currency: str) -> Dict[str, Dict[str, Any]]:
+def get_currency_pairs_by_quote(
+    quote_currency: str
+) -> Dict[str, Dict[str, Any]]:
     """
     Получение валютных пар по котируемой валюте
     
@@ -226,7 +188,8 @@ def format_currency_symbol(currency: str) -> str:
     Форматирование символа валюты с эмодзи
     
     Args:
-        currency: Код валюты (BTC, ETH, TON, USDT, RUB, USD, EUR, ZAR, THB, AED, IDR)
+        currency: Код валюты (BTC, ETH, TON, USDT, RUB, USD, EUR, ZAR,
+                  THB, AED, IDR)
         
     Returns:
         str: Отформатированный символ валюты

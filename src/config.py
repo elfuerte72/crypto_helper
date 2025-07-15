@@ -15,8 +15,8 @@ load_dotenv()
 class Config:
     """Application configuration class"""
     
-    # Bot Configuration
-    BOT_TOKEN: str = os.getenv('BOT_TOKEN', '')
+    # Bot Configuration - приоритет LOCAL_BOT_TOKEN для разработки
+    BOT_TOKEN: str = os.getenv('LOCAL_BOT_TOKEN') or os.getenv('BOT_TOKEN', '')
     
     # Rapira API Configuration
     RAPIRA_API_KEY: str = os.getenv('RAPIRA_API_KEY', '')
@@ -41,6 +41,9 @@ class Config:
     
     # Development Settings
     USE_MOCK_DATA: bool = os.getenv('USE_MOCK_DATA', 'false').lower() == 'true'
+    
+    # Environment Detection
+    IS_LOCAL_DEVELOPMENT: bool = bool(os.getenv('LOCAL_BOT_TOKEN'))
     
     # Supported Currency Pairs (криптовалюты с рублем)
     SUPPORTED_PAIRS = [
@@ -83,6 +86,14 @@ class Config:
         }
         return level_map.get(cls.LOG_LEVEL.upper(), logging.INFO)
 
+    @classmethod
+    def get_environment_info(cls) -> str:
+        """Get current environment information"""
+        if cls.IS_LOCAL_DEVELOPMENT:
+            return "🔧 Local Development Environment"
+        else:
+            return "🚀 Production Environment"
+
 
 # Create global config instance
 config = Config()
@@ -90,6 +101,12 @@ config = Config()
 # Validate configuration on import
 try:
     config.validate()
+    print("✅ Configuration loaded successfully")
+    print(f"📍 Environment: {config.get_environment_info()}")
+    if config.IS_LOCAL_DEVELOPMENT:
+        print("🤖 Using LOCAL_BOT_TOKEN for testing")
+    else:
+        print("🤖 Using BOT_TOKEN for production")
 except ValueError as e:
     print(f"❌ Configuration Error: {e}")
     print(
