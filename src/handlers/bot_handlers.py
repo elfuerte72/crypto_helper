@@ -50,7 +50,7 @@ async def start_margin_calculation(
 ) -> None:
     """
     Начало процесса расчета курса с наценкой
-    Теперь сначала спрашиваем сумму для расчета
+    Сначала получаем курс через API, затем спрашиваем наценку
     
     Args:
         callback_query: Callback query от пользователя
@@ -75,18 +75,27 @@ async def start_margin_calculation(
         return
     
     try:
-        # Сохраняем данные в FSM (пока без курса)
+        # Получаем текущий курс для валютной пары
+        async with api_service:
+            exchange_rate = await api_service.get_exchange_rate(pair_info['name'])
+            
+        if not exchange_rate:
+            raise RapiraAPIError("Не удалось получить курс валютной пары")
+        
+        # Сохраняем данные в FSM
         await state.update_data(
             pair_callback=pair_callback,
-            pair_info=pair_info
+            pair_info=pair_info,
+            exchange_rate=exchange_rate.to_dict(),
+            base_rate=float(exchange_rate.rate)
         )
         
-        # Переходим в состояние ожидания суммы
-        await state.set_state(MarginCalculationForm.waiting_for_amount)
+        # Переходим в состояние ожидания наценки
+        await state.set_state(MarginCalculationForm.waiting_for_margin)
         
         # Создаем клавиатуру и сообщение
-        keyboard = create_amount_selection_keyboard()
-        message_text = MessageFormatter.format_amount_request(pair_info)
+        keyboard = create_margin_selection_keyboard()
+        message_text = MessageFormatter.format_margin_request_simple(pair_info, exchange_rate.to_dict())
         
         await callback_query.message.edit_text(
             message_text,
@@ -94,12 +103,25 @@ async def start_margin_calculation(
             reply_markup=keyboard
         )
         
-        await callback_query.answer("Укажите сумму для расчета")
+        await callback_query.answer("Укажите наценку")
         
         logger.info(
-            f"Запрос суммы отправлен: "
-            f"user_id={user_id}, pair={pair_info['name']}"
+            f"Запрос наценки отправлен: "
+            f"user_id={user_id}, pair={pair_info['name']}, rate={exchange_rate.rate}"
         )
+        
+    except RapiraAPIError as e:
+        error_message = MessageFormatter.format_error_message('api_error', str(e))
+        
+        await callback_query.message.edit_text(
+            error_message,
+            parse_mode='HTML'
+        )
+        
+        await callback_query.answer("❌ Ошибка получения курса", show_alert=True)
+        await state.clear()
+        
+        logger.error(f"Ошибка получения курса: {e}")
         
     except Exception as e:
         error_message = MessageFormatter.format_error_message('generic')
@@ -137,6 +159,31 @@ async def handle_amount_text_input(message: Message, state: FSMContext):
         logger.error(f"Ошибка при обработке текстового ввода суммы: {e}")
 
 
+@margin_router.message(MarginCalculationForm.showing_rate_comparison, F.text)
+async def handle_amount_text_input_from_comparison(message: Message, state: FSMContext):
+    """
+    Обработчик текстового ввода суммы в состоянии сравнения курсов
+    """
+    try:
+        # Валидируем введенную сумму
+        amount = InputValidator.validate_amount(message.text)
+        
+        # Переходим в состояние ожидания суммы
+        await state.set_state(MarginCalculationForm.waiting_for_amount)
+        
+        # Обрабатываем сумму
+        await process_amount_input(message, amount, state)
+        
+    except ValidationError as e:
+        error_message = MessageFormatter.format_error_message('validation_amount', str(e))
+        await message.reply(error_message, parse_mode='HTML')
+    except Exception as e:
+        error_message = MessageFormatter.format_error_message('generic', 
+            "Не удалось обработать введенную сумму. Попробуйте еще раз.")
+        await message.reply(error_message, parse_mode='HTML')
+        logger.error(f"Ошибка при обработке текстового ввода суммы: {e}")
+
+
 async def process_amount_input(
     message: Message,
     amount: Decimal,
@@ -144,7 +191,7 @@ async def process_amount_input(
     from_callback: bool = False
 ) -> None:
     """
-    Обработка введенной суммы и переход к вводу наценки
+    Обработка введенной суммы и расчет итогового результата
     
     Args:
         message: Сообщение пользователя
@@ -156,60 +203,51 @@ async def process_amount_input(
         # Получаем сохраненные данные
         data = await state.get_data()
         pair_info = data.get('pair_info')
+        exchange_rate_data = data.get('exchange_rate')
+        margin_percent = data.get('margin_percent')
+        final_rate = data.get('final_rate')
         
-        if not pair_info:
-            raise MarginCalculationError("Данные о валютной паре потеряны, начните заново")
+        if not all([pair_info, exchange_rate_data, margin_percent is not None, final_rate]):
+            raise MarginCalculationError("Данные расчета потеряны, начните заново")
         
-        # Получаем текущий курс для валютной пары
-        async with api_service:
-            exchange_rate = await api_service.get_exchange_rate(pair_info['name'])
-            
-        if not exchange_rate:
-            raise RapiraAPIError("Не удалось получить курс валютной пары")
+        # Рассчитываем результат
+        result = calculate_margin_rate(
+            pair_info=pair_info,
+            amount=amount,
+            margin=Decimal(str(margin_percent)),
+            exchange_rate_data=exchange_rate_data
+        )
         
-        # Сохраняем данные в FSM
+        # Сохраняем результаты расчета
         await state.update_data(
             calculation_amount=float(amount),
-            exchange_rate=exchange_rate.to_dict(),
-            base_rate=float(exchange_rate.rate)
+            calculation_result=result.to_dict()
         )
         
-        # Переходим в состояние ожидания наценки
-        await state.set_state(MarginCalculationForm.waiting_for_margin)
+        # Переходим в состояние показа результата
+        await state.set_state(MarginCalculationForm.showing_result)
         
-        # Создаем клавиатуру и сообщение
-        keyboard = create_margin_selection_keyboard()
-        message_text = MessageFormatter.format_margin_request(
-            pair_info, amount, exchange_rate.to_dict()
-        )
+        # Форматируем и отправляем результат
+        result_message = MessageFormatter.format_calculation_result_simple(result)
+        result_keyboard = create_result_keyboard()
         
         if from_callback:
-            await message.edit_text(message_text, parse_mode='HTML', reply_markup=keyboard)
+            await message.edit_text(result_message, parse_mode='HTML', reply_markup=result_keyboard)
         else:
-            await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
+            await message.answer(result_message, parse_mode='HTML', reply_markup=result_keyboard)
         
         logger.info(
-            f"Переход к выбору наценки: "
+            f"Расчет завершен: "
             f"user_id={message.from_user.id}, "
             f"pair={pair_info['name']}, "
             f"amount={amount} {pair_info['base']}, "
-            f"rate={exchange_rate.rate}"
+            f"margin={margin_percent}%, "
+            f"final_rate={final_rate}"
         )
         
-    except RapiraAPIError as e:
-        error_message = MessageFormatter.format_error_message('api_error', str(e))
-        
-        if from_callback:
-            await message.edit_text(error_message, parse_mode='HTML')
-        else:
-            await message.answer(error_message, parse_mode='HTML')
-        
-        await state.clear()
-        logger.error(f"Ошибка получения курса: {e}")
-    
     except Exception as e:
-        error_message = MessageFormatter.format_error_message('generic', 
-            "Не удалось обработать сумму. Попробуйте начать заново.")
+        error_message = MessageFormatter.format_error_message('generic',
+            "Не удалось рассчитать результат. Попробуйте начать заново.")
         
         if from_callback:
             await message.edit_text(error_message, parse_mode='HTML')
@@ -365,14 +403,11 @@ async def handle_recalculate_margin(callback_query: CallbackQuery, state: FSMCon
     # Получаем сохраненные данные
     data = await state.get_data()
     pair_info = data.get('pair_info')
-    calculation_amount = data.get('calculation_amount')
     exchange_rate_data = data.get('exchange_rate')
     
     # Создаем клавиатуру и сообщение
     keyboard = create_margin_selection_keyboard()
-    message_text = MessageFormatter.format_margin_request(
-        pair_info, Decimal(str(calculation_amount)), exchange_rate_data
-    )
+    message_text = MessageFormatter.format_margin_request_simple(pair_info, exchange_rate_data)
     
     await callback_query.message.edit_text(
         message_text,
@@ -383,14 +418,35 @@ async def handle_recalculate_margin(callback_query: CallbackQuery, state: FSMCon
     await callback_query.answer("Введите новую наценку")
 
 
+@margin_router.callback_query(lambda c: c.data == 'recalculate_amount', MarginCalculationForm.showing_result)
+async def handle_recalculate_amount(callback_query: CallbackQuery, state: FSMContext):
+    """Обработчик пересчета с новой суммой"""
+    # Возвращаемся к состоянию показа сравнения курсов
+    await state.set_state(MarginCalculationForm.showing_rate_comparison)
+    
+    # Получаем сохраненные данные
+    data = await state.get_data()
+    pair_info = data.get('pair_info')
+    exchange_rate_data = data.get('exchange_rate')
+    margin_percent = data.get('margin_percent')
+    final_rate = data.get('final_rate')
+    
+    # Создаем клавиатуру и сообщение
+    keyboard = create_amount_selection_keyboard()
+    message_text = MessageFormatter.format_rate_comparison(
+        pair_info, exchange_rate_data, Decimal(str(margin_percent)), Decimal(str(final_rate))
+    )
+    
+    await callback_query.message.edit_text(
+        message_text,
+        parse_mode='HTML',
+        reply_markup=keyboard
+    )
+    
+    await callback_query.answer("Введите новую сумму")
+
+
 # Обработчики для неожиданных сообщений в состояниях FSM
-@margin_router.message(MarginCalculationForm.waiting_for_amount, ~F.text)
-async def handle_unexpected_content_waiting_amount(message: Message, state: FSMContext):
-    """Обработчик неожиданного контента в состоянии ожидания суммы"""
-    error_message = MessageFormatter.format_error_message('invalid_content', 'сумму для расчета')
-    await message.reply(error_message, parse_mode='HTML')
-
-
 @margin_router.message(MarginCalculationForm.waiting_for_margin, ~F.text)
 async def handle_unexpected_content_waiting_margin(message: Message, state: FSMContext):
     """Обработчик неожиданного контента в состоянии ожидания наценки"""
@@ -398,13 +454,97 @@ async def handle_unexpected_content_waiting_margin(message: Message, state: FSMC
     await message.reply(error_message, parse_mode='HTML')
 
 
+@margin_router.message(MarginCalculationForm.showing_rate_comparison, ~F.text)
+async def handle_unexpected_content_showing_rate_comparison(message: Message, state: FSMContext):
+    """Обработчик неожиданного контента в состоянии показа сравнения курсов"""
+    await message.reply(
+        "💡 Курсы уже рассчитаны. Введите сумму для расчета или используйте кнопки.",
+        parse_mode='HTML'
+    )
+
+
+@margin_router.message(MarginCalculationForm.waiting_for_amount, ~F.text)
+async def handle_unexpected_content_waiting_amount(message: Message, state: FSMContext):
+    """Обработчик неожиданного контента в состоянии ожидания суммы"""
+    error_message = MessageFormatter.format_error_message('invalid_content', 'сумму для расчета')
+    await message.reply(error_message, parse_mode='HTML')
+
+
 @margin_router.message(MarginCalculationForm.showing_result)
 async def handle_unexpected_message_showing_result(message: Message, state: FSMContext):
     """Обработчик неожиданных сообщений в состоянии показа результата"""
     await message.reply(
-        "💡 <b>Результат уже рассчитан</b>\n\n"
-        "Используйте кнопки выше для:\n"
-        "• Пересчета с новой наценкой\n"
-        "• Возврата к главному меню",
+        "💡 Результат уже рассчитан. Используйте кнопки выше.",
         parse_mode='HTML'
     )
+
+
+# Новые функции для обновленной логики
+async def process_margin_input(
+    message: Message,
+    margin: Decimal,
+    state: FSMContext,
+    from_callback: bool = False
+) -> None:
+    """
+    Обработка введенной наценки и показ сравнения курсов
+    
+    Args:
+        message: Сообщение пользователя
+        margin: Валидированная наценка
+        state: FSM контекст
+        from_callback: Флаг, что вызов из callback
+    """
+    try:
+        # Получаем сохраненные данные
+        data = await state.get_data()
+        pair_info = data.get('pair_info')
+        exchange_rate_data = data.get('exchange_rate')
+        base_rate = data.get('base_rate')
+        
+        if not all([pair_info, exchange_rate_data, base_rate]):
+            raise MarginCalculationError("Данные расчета потеряны, начните заново")
+        
+        # Рассчитываем итоговый курс с наценкой
+        from .calculation_logic import MarginCalculator
+        final_rate = MarginCalculator.calculate_final_rate(Decimal(str(base_rate)), margin)
+        
+        # Сохраняем данные в FSM
+        await state.update_data(
+            margin_percent=float(margin),
+            final_rate=float(final_rate)
+        )
+        
+        # Переходим в состояние показа сравнения курсов
+        await state.set_state(MarginCalculationForm.showing_rate_comparison)
+        
+        # Создаем клавиатуру и сообщение
+        keyboard = create_amount_selection_keyboard()
+        message_text = MessageFormatter.format_rate_comparison(
+            pair_info, exchange_rate_data, margin, final_rate
+        )
+        
+        if from_callback:
+            await message.edit_text(message_text, parse_mode='HTML', reply_markup=keyboard)
+        else:
+            await message.answer(message_text, parse_mode='HTML', reply_markup=keyboard)
+        
+        logger.info(
+            f"Показ сравнения курсов: "
+            f"user_id={message.from_user.id}, "
+            f"pair={pair_info['name']}, "
+            f"margin={margin}%, "
+            f"final_rate={final_rate}"
+        )
+        
+    except Exception as e:
+        error_message = MessageFormatter.format_error_message('generic',
+            "Не удалось рассчитать курс с наценкой. Попробуйте начать заново.")
+        
+        if from_callback:
+            await message.edit_text(error_message, parse_mode='HTML')
+        else:
+            await message.answer(error_message, parse_mode='HTML')
+        
+        await state.clear()
+        logger.error(f"Ошибка при обработке наценки: {e}")

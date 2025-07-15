@@ -1,85 +1,134 @@
 #!/usr/bin/env python3
 """
 Модуль валютных пар и констант для Crypto Helper Bot
-Содержит определения валютных пар и функции для работы с ними
+Содержит определения валютных пар для криптовалют с рублем
 """
 
 from typing import Dict, Any, Optional
 
-# Константы валютных пар
+# Константы валютных пар (поддерживаемые APILayer и Rapira API)
 CURRENCY_PAIRS = {
-    # USDT пары
-    'usdt_zar': {
-        'name': 'USDT/ZAR',
-        'base': 'USDT',
-        'quote': 'ZAR',
-        'emoji': '🇿🇦',
-        'description': 'Tether к Южноафриканскому рэнду'
+    # Криптовалютные пары
+    'btcusdt': {
+        'name': 'BTC/USDT',
+        'base': 'BTC',
+        'quote': 'USDT',
+        'emoji': '₿',
+        'description': 'Bitcoin к Tether'
     },
-    'usdt_thb': {
-        'name': 'USDT/THB',
-        'base': 'USDT',
-        'quote': 'THB',
-        'emoji': '🇹🇭',
-        'description': 'Tether к Тайскому бату'
+    'ethusdt': {
+        'name': 'ETH/USDT',
+        'base': 'ETH',
+        'quote': 'USDT',
+        'emoji': '🔷',
+        'description': 'Ethereum к Tether'
     },
-    'usdt_aed': {
-        'name': 'USDT/AED',
-        'base': 'USDT',
-        'quote': 'AED',
-        'emoji': '🇦🇪',
-        'description': 'Tether к Дирхаму ОАЭ'
+    'tonusdt': {
+        'name': 'TON/USDT',
+        'base': 'TON',
+        'quote': 'USDT',
+        'emoji': '💎',
+        'description': 'Toncoin к Tether'
     },
-    'usdt_idr': {
-        'name': 'USDT/IDR',
-        'base': 'USDT',
-        'quote': 'IDR',
-        'emoji': '🇮🇩',
-        'description': 'Tether к Индонезийской рупии'
-    },
-    'usdt_rub': {
+    'usdtrub': {
         'name': 'USDT/RUB',
         'base': 'USDT',
         'quote': 'RUB',
-        'emoji': '🇷🇺',
-        'description': 'Tether к Российскому рублю'
+        'emoji': '🟢',
+        'description': 'Tether к рублю'
+    },
+    'btcrub': {
+        'name': 'BTC/RUB',
+        'base': 'BTC',
+        'quote': 'RUB',
+        'emoji': '₿',
+        'description': 'Bitcoin к рублю'
+    },
+    'ethrub': {
+        'name': 'ETH/RUB',
+        'base': 'ETH',
+        'quote': 'RUB',
+        'emoji': '🔷',
+        'description': 'Ethereum к рублю'
+    },
+    'tonrub': {
+        'name': 'TON/RUB',
+        'base': 'TON',
+        'quote': 'RUB',
+        'emoji': '💎',
+        'description': 'Toncoin к рублю'
     },
     
-    # Обратные USDT пары
-    'zar_usdt': {
-        'name': 'ZAR/USDT',
-        'base': 'ZAR',
-        'quote': 'USDT',
-        'emoji': '🇿🇦',
-        'description': 'Южноафриканский рэнд к Tether'
+    # Фиатные пары
+    'usdrub': {
+        'name': 'USD/RUB',
+        'base': 'USD',
+        'quote': 'RUB',
+        'emoji': '💵',
+        'description': 'Доллар к рублю'
     },
-    'thb_usdt': {
-        'name': 'THB/USDT',
-        'base': 'THB',
-        'quote': 'USDT',
-        'emoji': '🇹🇭',
-        'description': 'Тайский бат к Tether'
+    'eurrub': {
+        'name': 'EUR/RUB',
+        'base': 'EUR',
+        'quote': 'RUB',
+        'emoji': '💶',
+        'description': 'Евро к рублю'
     },
-    'aed_usdt': {
-        'name': 'AED/USDT',
-        'base': 'AED',
-        'quote': 'USDT',
-        'emoji': '🇦🇪',
-        'description': 'Дирхам ОАЭ к Tether'
-    },
-    'idr_usdt': {
-        'name': 'IDR/USDT',
-        'base': 'IDR',
-        'quote': 'USDT',
-        'emoji': '🇮🇩',
-        'description': 'Индонезийская рупия к Tether'
-    },
-    'rub_usdt': {
-        'name': 'RUB/USDT',
+    'rubzar': {
+        'name': 'RUB/ZAR',
         'base': 'RUB',
-        'quote': 'USDT',
-        'emoji': '🇷🇺',
-        'description': 'Российский рубль к Tether'
+        'quote': 'ZAR',
+        'emoji': '🇿🇦',
+        'description': 'Рубль к южноафриканскому рэнду'
+    },
+    'zarrub': {
+        'name': 'ZAR/RUB',
+        'base': 'ZAR',
+        'quote': 'RUB',
+        'emoji': '🇿🇦',
+        'description': 'Южноафриканский рэнд к рублю'
+    },
+    'rubthb': {
+        'name': 'RUB/THB',
+        'base': 'RUB',
+        'quote': 'THB',
+        'emoji': '🇹🇭',
+        'description': 'Рубль к тайскому бату'
+    },
+    'thbrub': {
+        'name': 'THB/RUB',
+        'base': 'THB',
+        'quote': 'RUB',
+        'emoji': '🇹🇭',
+        'description': 'Тайский бат к рублю'
+    },
+    'rubaed': {
+        'name': 'RUB/AED',
+        'base': 'RUB',
+        'quote': 'AED',
+        'emoji': '🇦🇪',
+        'description': 'Рубль к дирхаму ОАЭ'
+    },
+    'aedrub': {
+        'name': 'AED/RUB',
+        'base': 'AED',
+        'quote': 'RUB',
+        'emoji': '🇦🇪',
+        'description': 'Дирхам ОАЭ к рублю'
+    },
+    'rubidr': {
+        'name': 'RUB/IDR',
+        'base': 'RUB',
+        'quote': 'IDR',
+        'emoji': '🇮🇩',
+        'description': 'Рубль к индонезийской рупии'
+    },
+    'idrrub': {
+        'name': 'IDR/RUB',
+        'base': 'IDR',
+        'quote': 'RUB',
+        'emoji': '🇮🇩',
+        'description': 'Индонезийская рупия к рублю'
     }
 }
 
@@ -89,7 +138,7 @@ def get_currency_pair_info(pair_callback: str) -> Optional[Dict[str, Any]]:
     Получение информации о валютной паре по callback данным
     
     Args:
-        pair_callback: Callback данные валютной пары (например, 'usdt_zar')
+        pair_callback: Callback данные валютной пары (например, 'rub_btc')
         
     Returns:
         Dict[str, Any]: Информация о валютной паре или None если не найдена
@@ -125,10 +174,10 @@ def get_currency_pairs_by_base(base_currency: str) -> Dict[str, Dict[str, Any]]:
     Получение валютных пар по базовой валюте
     
     Args:
-        base_currency: Базовая валюта (например, 'USDT')
+        base_currency: Базовая валюта (например, 'RUB' или 'BTC')
         
     Returns:
-        Dict[str, Dict[str, Any]]: Словарь валютных пар с указанной базовой валютой
+        Dict[str, Dict[str, Any]]: Словарь валютных пар с базовой валютой
     """
     return {
         key: value for key, value in CURRENCY_PAIRS.items()
@@ -141,12 +190,78 @@ def get_currency_pairs_by_quote(quote_currency: str) -> Dict[str, Dict[str, Any]
     Получение валютных пар по котируемой валюте
     
     Args:
-        quote_currency: Котируемая валюта (например, 'RUB')
+        quote_currency: Котируемая валюта (например, 'RUB' или 'BTC')
         
     Returns:
-        Dict[str, Dict[str, Any]]: Словарь валютных пар с указанной котируемой валютой
+        Dict[str, Dict[str, Any]]: Словарь валютных пар с котируемой валютой
     """
     return {
         key: value for key, value in CURRENCY_PAIRS.items()
         if value['quote'] == quote_currency
     }
+
+
+def get_crypto_to_rub_pairs() -> Dict[str, Dict[str, Any]]:
+    """
+    Получение пар криптовалют к рублю (например, BTC/RUB)
+    
+    Returns:
+        Dict[str, Dict[str, Any]]: Словарь пар криптовалют к рублю
+    """
+    return get_currency_pairs_by_quote('RUB')
+
+
+def get_rub_to_crypto_pairs() -> Dict[str, Dict[str, Any]]:
+    """
+    Получение пар рубля к криптовалютам (например, RUB/BTC)
+    
+    Returns:
+        Dict[str, Dict[str, Any]]: Словарь пар рубля к криптовалютам
+    """
+    return get_currency_pairs_by_base('RUB')
+
+
+def format_currency_symbol(currency: str) -> str:
+    """
+    Форматирование символа валюты с эмодзи
+    
+    Args:
+        currency: Код валюты (BTC, ETH, TON, USDT, RUB, USD, EUR, ZAR, THB, AED, IDR)
+        
+    Returns:
+        str: Отформатированный символ валюты
+    """
+    emoji_map = {
+        'BTC': '₿ BTC',
+        'ETH': '🔷 ETH', 
+        'TON': '💎 TON',
+        'USDT': '🟢 USDT',
+        'RUB': '🇷🇺 RUB',
+        'USD': '💵 USD',
+        'EUR': '💶 EUR',
+        'ZAR': '🇿🇦 ZAR',
+        'THB': '🇹🇭 THB',
+        'AED': '🇦🇪 AED',
+        'IDR': '🇮🇩 IDR'
+    }
+    return emoji_map.get(currency, currency)
+
+
+def get_pair_display_name(pair_callback: str) -> str:
+    """
+    Получение отображаемого имени валютной пары
+    
+    Args:
+        pair_callback: Callback данные пары (например, 'rub_btc')
+        
+    Returns:
+        str: Отображаемое имя пары с эмодзи
+    """
+    pair_info = get_currency_pair_info(pair_callback)
+    if not pair_info:
+        return pair_callback.upper()
+    
+    base_formatted = format_currency_symbol(pair_info['base'])
+    quote_formatted = format_currency_symbol(pair_info['quote'])
+    
+    return f"{base_formatted} → {quote_formatted}"

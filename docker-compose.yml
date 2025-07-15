@@ -1,0 +1,99 @@
+# Crypto Helper Telegram Bot - Simple Docker Compose
+# Unified configuration for all environments
+
+version: '3.8'
+
+services:
+  crypto-helper-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: crypto-helper-bot:latest
+    container_name: crypto-helper-bot
+    restart: unless-stopped
+    
+    # Environment variables from .env file
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - RAPIRA_API_KEY=${RAPIRA_API_KEY}
+      - RAPIRA_API_URL=${RAPIRA_API_URL:-https://api.rapira.net/open/market/rates}
+      - API_LAYER_KEY=${API_LAYER_KEY}
+      - API_LAYER_URL=${API_LAYER_URL:-https://api.apilayer.com/exchangerates_data}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - API_TIMEOUT=${API_TIMEOUT:-30}
+      - API_RETRY_COUNT=${API_RETRY_COUNT:-3}
+      - USE_MOCK_DATA=${USE_MOCK_DATA:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - PORT=8080
+    
+    # Port mapping
+    ports:
+      - "8080:8080"
+    
+    # Volume mounts
+    volumes:
+      - ./logs:/app/logs
+      - ./src:/app/src  # Hot reload for development
+      - ./.env:/app/.env
+    
+    # Network configuration
+    networks:
+      - crypto-helper-network
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Resource limits (reasonable defaults)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # Optional: Redis (enable with --profile redis)
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-helper-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - crypto-helper-network
+    profiles:
+      - redis
+
+  # Optional: PostgreSQL (enable with --profile database)
+  postgres:
+    image: postgres:15-alpine
+    container_name: crypto-helper-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=crypto_helper
+      - POSTGRES_USER=crypto_helper
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - crypto-helper-network
+    profiles:
+      - database
+
+networks:
+  crypto-helper-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:

@@ -9,8 +9,9 @@ from aiogram.fsm.state import State, StatesGroup
 
 class MarginCalculationForm(StatesGroup):
     """FSM состояния для расчета курса с наценкой"""
-    waiting_for_amount = State()
     waiting_for_margin = State()
+    showing_rate_comparison = State()
+    waiting_for_amount = State()
     showing_result = State()
 
 

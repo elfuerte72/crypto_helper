@@ -5,7 +5,7 @@ Handlers package for Crypto Helper Bot
 """
 
 # Импорты основных компонентов
-from .admin_handlers import admin_router, check_admin_permissions
+from .admin_handlers import admin_router
 from .bot_handlers import margin_router, start_margin_calculation
 from .currency_pairs import (
     get_currency_pair_info, 
@@ -30,7 +30,6 @@ __all__ = [
     
     # Основные функции
     'start_margin_calculation',
-    'check_admin_permissions',
     
     # Валютные пары
     'get_currency_pair_info',

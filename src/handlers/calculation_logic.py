@@ -128,13 +128,22 @@ class CalculationResult:
         self.amount = amount
         self.base_rate = base_rate
         self.margin = margin
+        self.margin_percent = margin  # Дублируем для совместимости
         self.final_rate = final_rate
         self.exchange_rate_data = exchange_rate_data
+        
+        # Получаем информацию о валютах
+        self.base_currency = pair_info['base']
+        self.quote_currency = pair_info['quote']
         
         # Рассчитываем дополнительные значения
         self.rate_change = final_rate - base_rate
         self.amount_base_rate, self.amount_final_rate, self.amount_difference = \
             MarginCalculator.calculate_exchange_amounts(amount, base_rate, final_rate)
+        
+        # Дополнительные атрибуты для удобства
+        self.final_amount = self.amount_final_rate
+        self.profit = self.amount_difference
     
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -148,11 +157,16 @@ class CalculationResult:
             'amount': float(self.amount),
             'base_rate': float(self.base_rate),
             'margin': float(self.margin),
+            'margin_percent': float(self.margin_percent),
             'final_rate': float(self.final_rate),
             'rate_change': float(self.rate_change),
             'amount_base_rate': float(self.amount_base_rate),
             'amount_final_rate': float(self.amount_final_rate),
             'amount_difference': float(self.amount_difference),
+            'final_amount': float(self.final_amount),
+            'profit': float(self.profit),
+            'base_currency': self.base_currency,
+            'quote_currency': self.quote_currency,
             'exchange_rate_data': self.exchange_rate_data
         }
     

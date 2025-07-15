@@ -77,7 +77,7 @@ class CryptoHelperBot:
             f"👤 User ID: <code>{message.from_user.id}</code>\n"
             f"📝 Username: @{message.from_user.username or 'N/A'}\n"
             f"🌐 Chat Type: {message.chat.type}\n"
-            f"⚙️ Debug Mode: {'Включен' if config.DEBUG_MODE else 'Выключен'}"
+            f"⚙️ Bot Status: Активен"
         )
         
         await message.reply(test_info, parse_mode='HTML')
@@ -110,7 +110,7 @@ class CryptoHelperBot:
     async def start(self):
         """Start the bot"""
         logger.info("🚀 Starting Crypto Helper Bot...")
-        logger.info(f"Debug mode: {config.DEBUG_MODE}")
+        logger.info("Bot starting in production mode")
         logger.info(f"Supported pairs: {len(config.SUPPORTED_PAIRS)}")
         
         try:
