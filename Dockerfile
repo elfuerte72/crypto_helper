@@ -36,10 +36,11 @@ RUN mkdir -p /app/logs /app/tmp && \
 # Switch to non-root user
 USER botuser
 
-# Expose port (configured via PORT env var)
-EXPOSE $PORT
+# Railway будет автоматически назначать PORT
+# Expose port (Railway автоматически назначит PORT)
+EXPOSE 8080
 
-# Health check
+# Health check для Railway
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8080}/health/live || exit 1
 
