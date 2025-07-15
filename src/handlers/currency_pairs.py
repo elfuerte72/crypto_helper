@@ -87,6 +87,27 @@ CURRENCY_PAIRS = {
         'quote': 'RUB',
         'emoji': '🇮🇩',
         'description': 'Индонезийская рупия к рублю'
+    },
+    'rubeur': {
+        'name': 'RUB/EUR',
+        'base': 'RUB',
+        'quote': 'EUR',
+        'emoji': '🇷🇺',
+        'description': 'Рубль к евро'
+    },
+    'rubusd': {
+        'name': 'RUB/USD',
+        'base': 'RUB',
+        'quote': 'USD',
+        'emoji': '🇷🇺',
+        'description': 'Рубль к доллару США'
+    },
+    'usdrub': {
+        'name': 'USD/RUB',
+        'base': 'USD',
+        'quote': 'RUB',
+        'emoji': '💵',
+        'description': 'Доллар США к рублю'
     }
 }
 
