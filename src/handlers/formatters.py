@@ -242,7 +242,7 @@ class MessageFormatter:
         return (
             f"💱 <b>Расчет курса с наценкой</b>\n\n"
             f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n"
-            f"💹 <b>Текущий курс:</b> {rate_display}\n\n"
+            f"💹 <b>Базовый курс:</b> {rate_display}\n\n"
             f"📈 <b>Введите наценку в %:</b>\n\n"
             f"Пример: 5 или -1.2"
         )
@@ -255,7 +255,7 @@ class MessageFormatter:
         final_rate: Decimal
     ) -> str:
         """
-        Форматирование сравнения курсов
+        Форматирование сравнения курсов (старая версия для совместимости)
         
         Args:
             pair_info: Информация о валютной паре
@@ -283,7 +283,7 @@ class MessageFormatter:
         return (
             f"💱 <b>Сравнение курсов</b>\n\n"
             f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n\n"
-            f"💹 <b>Курс по бирже:</b> {base_rate_display}\n"
+            f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
             f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{margin}%</code>\n"
             f"💰 <b>Курс с наценкой:</b> {final_rate_display}\n\n"
             f"💰 <b>Введите сумму для расчета:</b>\n\n"
@@ -309,9 +309,6 @@ class MessageFormatter:
         base_rate_display = MessageFormatter._format_rate_display(
             result.pair_info, float(result.base_rate)
         )
-        final_rate_display = MessageFormatter._format_rate_display(
-            result.pair_info, float(result.final_rate)
-        )
         amount_display = MarginCalculator.format_amount_display(result.amount, base_currency)
         amount_final_str = MarginCalculator.format_currency_value(result.amount_final_rate, quote_currency)
         
@@ -319,15 +316,41 @@ class MessageFormatter:
         margin_sign = "+" if result.margin >= 0 else ""
         margin_emoji = "📈" if result.margin >= 0 else "📉"
         
-        return (
-            f"✅ <b>Расчет завершен</b>\n\n"
-            f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n\n"
-            f"💰 <b>Сумма:</b> <code>{amount_display}</code> {base_currency}\n"
-            f"💹 <b>Курс по бирже:</b> {base_rate_display}\n"
-            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n"
-            f"💰 <b>Курс с наценкой:</b> {final_rate_display}\n\n"
-            f"💵 <b>Итого к получению:</b> <code>{amount_final_str}</code> {quote_currency}"
-        )
+        # Если есть банковские курсы
+        if result.banking_rates:
+            buy_rate_display = MessageFormatter._format_rate_display(
+                result.pair_info, float(result.banking_rates.buy_rate)
+            )
+            sell_rate_display = MessageFormatter._format_rate_display(
+                result.pair_info, float(result.banking_rates.sell_rate)
+            )
+            
+            return (
+                f"✅ <b>Расчет завершен</b>\n\n"
+                f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n\n"
+                f"💰 <b>Сумма:</b> <code>{amount_display}</code> {base_currency}\n"
+                f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
+                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n\n"
+                f"🏦 <b>Банковские курсы:</b>\n"
+                f"💵 Покупка: {buy_rate_display}\n"
+                f"💰 Продажа: {sell_rate_display}\n\n"
+                f"💵 <b>Итого к получению:</b> <code>{amount_final_str}</code> {quote_currency}"
+            )
+        else:
+            # Старое форматирование
+            final_rate_display = MessageFormatter._format_rate_display(
+                result.pair_info, float(result.final_rate)
+            )
+            
+            return (
+                f"✅ <b>Расчет завершен</b>\n\n"
+                f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n\n"
+                f"💰 <b>Сумма:</b> <code>{amount_display}</code> {base_currency}\n"
+                f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
+                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n"
+                f"💰 <b>Итоговый курс:</b> {final_rate_display}\n\n"
+                f"💵 <b>Итого к получению:</b> <code>{amount_final_str}</code> {quote_currency}"
+            )
     
     @staticmethod
     def _format_rate_display(
@@ -335,7 +358,7 @@ class MessageFormatter:
         rate: float
     ) -> str:
         """
-        Форматирование курса в удобном для чтения виде
+        Форматирование курса в удобном для чтения виде (банковский стиль)
         
         Args:
             pair_info: Информация о валютной паре
@@ -347,25 +370,172 @@ class MessageFormatter:
         base_currency = pair_info['base']
         quote_currency = pair_info['quote']
         
-        # Для пар с рублем показываем в удобном формате
-        if base_currency == 'RUB' and quote_currency in ['USDT', 'BTC', 'ETH', 'TON']:
-            # RUB/USDT -> показываем как "1 USDT = X RUB"
-            if rate > 0:
-                inverted_rate = 1.0 / rate
-                formatted_rate = MarginCalculator.format_currency_value(
-                    Decimal(str(inverted_rate)), base_currency
-                )
-                return f"<code>1 {quote_currency} = {formatted_rate} {base_currency}</code>"
+        # Определяем "главную" валюту для отображения
+        # Приоритет: RUB > USD > EUR > другие фиатные > криптовалюты
+        major_currencies = ['RUB', 'USD', 'EUR', 'GBP', 'CNY', 'JPY']
+        crypto_currencies = ['BTC', 'ETH', 'TON', 'USDT', 'USDC', 'LTC', 'TRX', 'BNB', 'DAI', 'DOGE', 'ETC', 'OP', 'XMR', 'SOL', 'NOT']
         
-        elif quote_currency == 'RUB' and base_currency in ['USDT', 'BTC', 'ETH', 'TON']:
-            # BTC/RUB -> показываем как "1 BTC = X RUB"
-            formatted_rate = MarginCalculator.format_currency_value(
-                Decimal(str(rate)), quote_currency
-            )
-            return f"<code>1 {base_currency} = {formatted_rate} {quote_currency}</code>"
+        # Логика инверсии для удобного отображения
+        should_invert = False
         
-        # Для остальных пар - стандартный формат
+        # Если базовая валюта - RUB, а котируемая - любая другая
+        if base_currency == 'RUB':
+            should_invert = True
+            
+        # Если базовая валюта - другая фиатная, а котируемая - RUB
+        elif quote_currency == 'RUB':
+            should_invert = False
+            
+        # Если базовая валюта - менее приоритетная фиатная, а котируемая - более приоритетная
+        elif (base_currency in major_currencies and quote_currency in major_currencies):
+            base_priority = major_currencies.index(base_currency) if base_currency in major_currencies else 999
+            quote_priority = major_currencies.index(quote_currency) if quote_currency in major_currencies else 999
+            should_invert = base_priority > quote_priority
+            
+        # Если базовая валюта - криптовалюта, а котируемая - фиатная
+        elif base_currency in crypto_currencies and quote_currency in major_currencies:
+            should_invert = False
+            
+        # Если базовая валюта - фиатная, а котируемая - криптовалюта
+        elif base_currency in major_currencies and quote_currency in crypto_currencies:
+            should_invert = True
+            
+        # Применяем инверсию если нужно
+        if should_invert and rate > 0:
+            display_rate = 1.0 / rate
+            display_base = quote_currency
+            display_quote = base_currency
+        else:
+            display_rate = rate
+            display_base = base_currency
+            display_quote = quote_currency
+        
+        # Форматируем курс
         formatted_rate = MarginCalculator.format_currency_value(
-            Decimal(str(rate)), quote_currency
+            Decimal(str(display_rate)), display_quote
         )
-        return f"<code>{formatted_rate}</code> {quote_currency}"
+        
+        return f"<code>1 {display_base} = {formatted_rate} {display_quote}</code>"
+    
+    @staticmethod
+    def format_banking_rates_comparison(
+        pair_info: Dict[str, Any], 
+        exchange_rate_data: Dict[str, Any],
+        margin: Decimal,
+        buy_rate: Decimal,
+        sell_rate: Decimal,
+        spread_percent: Decimal = Decimal('0.5')
+    ) -> str:
+        """
+        Форматирование сравнения курсов в банковском стиле
+        
+        Args:
+            pair_info: Информация о валютной паре
+            exchange_rate_data: Данные о курсе
+            margin: Наценка в процентах
+            buy_rate: Курс покупки
+            sell_rate: Курс продажи
+            spread_percent: Спрэд
+            
+        Returns:
+            str: Отформатированное сообщение
+        """
+        base_rate = float(exchange_rate_data['rate'])
+        
+        # Форматируем курсы в удобном виде
+        base_rate_display = MessageFormatter._format_rate_display(
+            pair_info, base_rate
+        )
+        buy_rate_display = MessageFormatter._format_rate_display(
+            pair_info, float(buy_rate)
+        )
+        sell_rate_display = MessageFormatter._format_rate_display(
+            pair_info, float(sell_rate)
+        )
+        
+        # Определяем знаки и эмодзи
+        margin_sign = "+" if margin >= 0 else ""
+        margin_emoji = "📈" if margin >= 0 else "📉"
+        
+        return (
+            f"🏦 <b>Банковские курсы валют</b>\n\n"
+            f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n\n"
+            f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
+            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{margin}%</code>\n"
+            f"📊 <b>Спрэд:</b> <code>{spread_percent}%</code>\n\n"
+            f"💰 <b>Курс покупки:</b> {buy_rate_display}\n"
+            f"💵 <b>Курс продажи:</b> {sell_rate_display}\n\n"
+            f"💰 <b>Введите сумму для расчета:</b>\n\n"
+            f"Пример: 1000 или 500.50"
+        )
+    
+    @staticmethod
+    def format_banking_calculation_result(result: CalculationResult) -> str:
+        """
+        Форматирование результата расчета в банковском стиле
+        
+        Args:
+            result: Результат расчета
+            
+        Returns:
+            str: Отформатированный результат
+        """
+        # Определяем валюты
+        base_currency = result.pair_info['base']
+        quote_currency = result.pair_info['quote']
+        
+        # Форматируем значения
+        base_rate_display = MessageFormatter._format_rate_display(
+            result.pair_info, float(result.base_rate)
+        )
+        amount_display = MarginCalculator.format_amount_display(result.amount, base_currency)
+        
+        # Определяем цвет для наценки
+        margin_emoji = "📈" if result.margin >= 0 else "📉"
+        margin_sign = "+" if result.margin >= 0 else ""
+        
+        # Временная метка
+        timestamp = result.exchange_rate_data.get('timestamp', '')[:19].replace('T', ' ')
+        
+        # Если есть банковские курсы - используем их
+        if result.banking_rates:
+            # Курсы покупки и продажи
+            buy_rate_display = MessageFormatter._format_rate_display(
+                result.pair_info, float(result.banking_rates.buy_rate)
+            )
+            sell_rate_display = MessageFormatter._format_rate_display(
+                result.pair_info, float(result.banking_rates.sell_rate)
+            )
+            
+            # Форматируем суммы
+            amount_base_str = MarginCalculator.format_currency_value(result.amount_base_rate, quote_currency)
+            amount_buy_str = MarginCalculator.format_currency_value(result.amount_buy_rate, quote_currency)
+            amount_sell_str = MarginCalculator.format_currency_value(result.amount_sell_rate, quote_currency)
+            bank_profit_str = MarginCalculator.format_currency_value(result.bank_profit, quote_currency)
+            
+            return (
+                f"✅ <b>Расчет курса завершен</b>\n\n"
+                f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n"
+                f"📝 <i>{result.pair_info['description']}</i>\n\n"
+                
+                f"💰 <b>Сумма расчета:</b> <code>{amount_display}</code> {base_currency}\n"
+                f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
+                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n"
+                f"📊 <b>Спрэд:</b> <code>{result.banking_rates.spread_percent}%</code>\n\n"
+                
+                f"🏦 <b>Банковские курсы:</b>\n"
+                f"💵 <b>Покупка:</b> {buy_rate_display}\n"
+                f"💰 <b>Продажа:</b> {sell_rate_display}\n\n"
+                
+                f"📊 <b>Расчет сумм:</b>\n"
+                f"• По базовому курсу: <code>{amount_base_str}</code> {quote_currency}\n"
+                f"• По курсу покупки: <code>{amount_buy_str}</code> {quote_currency}\n"
+                f"• По курсу продажи: <code>{amount_sell_str}</code> {quote_currency}\n"
+                f"💵 • Прибыль банка: <code>{bank_profit_str}</code> {quote_currency}\n\n"
+                
+                f"🕐 <b>Время получения курса:</b> {timestamp}\n"
+                f"📡 <b>Источник:</b> {result.exchange_rate_data.get('source', 'N/A')}"
+            )
+        else:
+            # Используем старое форматирование
+            return MessageFormatter.format_calculation_result(result)

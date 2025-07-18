@@ -359,14 +359,15 @@ class APIService:
             fiat_rate = await fiat_rates_service.get_fiat_exchange_rate(pair)
             
             if fiat_rate:
-                logger.debug(f"Got fiat rate for {pair}: {fiat_rate.rate}")
+                logger.debug(f"Got fiat rate for {pair}: {fiat_rate.rate} (source: {fiat_rate.source})")
                 return fiat_rate
             else:
-                logger.warning(f"No fiat rate found for {pair}")
+                logger.warning(f"No fiat rate found for {pair} even with fallback")
                 raise RapiraAPIError(f"Fiat rate for {pair} not found")
                 
         except APILayerError as e:
             logger.error(f"APILayer error for {pair}: {e}")
+            # Не пробрасываем ошибку, так как fallback уже обработан
             raise RapiraAPIError(f"APILayer error: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error getting fiat rate for {pair}: {e}")

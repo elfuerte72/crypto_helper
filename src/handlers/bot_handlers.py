@@ -4,8 +4,8 @@
 Содержит FSM обработчики и логику взаимодействия с пользователем
 """
 
+import asyncio
 from decimal import Decimal
-from typing import Dict, Any
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -15,10 +15,9 @@ from aiogram.fsm.context import FSMContext
 from .fsm_states import MarginCalculationForm, MarginCalculationError
 from .currency_pairs import get_currency_pair_info
 from .validation import InputValidator, ValidationError
-from .calculation_logic import calculate_margin_rate, CalculationResult
+from .calculation_logic import calculate_margin_rate
 from .formatters import MessageFormatter
 from .keyboards import (
-    KeyboardBuilder, 
     create_currency_pairs_keyboard,
     create_amount_selection_keyboard,
     create_margin_selection_keyboard,
@@ -43,19 +42,9 @@ logger = get_bot_logger()
 margin_router = Router()
 
 
-async def start_margin_calculation(
-    callback_query: CallbackQuery,
-    pair_callback: str,
-    state: FSMContext
-) -> None:
+async def start_margin_calculation(callback_query: CallbackQuery, pair_callback: str, state: FSMContext):
     """
-    Начало процесса расчета курса с наценкой
-    Сначала получаем курс через API, затем спрашиваем наценку
-    
-    Args:
-        callback_query: Callback query от пользователя
-        pair_callback: Callback данные валютной пары
-        state: FSM контекст
+    Обработчик начала расчета наценки с улучшенной обработкой таймаутов
     """
     user_id = callback_query.from_user.id
     username = callback_query.from_user.username or "N/A"
@@ -68,17 +57,32 @@ async def start_margin_calculation(
     # Получаем информацию о валютной паре
     pair_info = get_currency_pair_info(pair_callback)
     if not pair_info:
-        await callback_query.answer(
-            "❌ Ошибка: информация о валютной паре не найдена",
-            show_alert=True
-        )
+        try:
+            await callback_query.answer(
+                "❌ Ошибка: информация о валютной паре не найдена",
+                show_alert=True
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при отправке callback answer: {e}")
         return
-    
+
+    # Сначала отвечаем на callback query, чтобы избежать таймаута
     try:
-        # Получаем текущий курс для валютной пары
-        async with api_service:
-            exchange_rate = await api_service.get_exchange_rate(pair_info['name'])
-            
+        await callback_query.answer("⏳ Получаем курс валют...")
+    except Exception as e:
+        logger.warning(f"Не удалось ответить на callback query: {e}")
+        # Продолжаем работу даже если callback answer не удался
+
+    try:
+        # Получаем текущий курс для валютной пары с таймаутом
+        async with asyncio.timeout(25):  # Таймаут 25 секунд
+            async with api_service:
+                # Формируем правильный формат пары для API
+                pair_format = f"{pair_info['base']}/{pair_info['quote']}"
+                exchange_rate = await api_service.get_exchange_rate(
+                    pair_format
+                )
+                
         if not exchange_rate:
             raise RapiraAPIError("Не удалось получить курс валютной пары")
         
@@ -95,7 +99,9 @@ async def start_margin_calculation(
         
         # Создаем клавиатуру и сообщение
         keyboard = create_margin_selection_keyboard()
-        message_text = MessageFormatter.format_margin_request_simple(pair_info, exchange_rate.to_dict())
+        message_text = MessageFormatter.format_margin_request_simple(
+            pair_info, exchange_rate.to_dict()
+        )
         
         await callback_query.message.edit_text(
             message_text,
@@ -103,22 +109,35 @@ async def start_margin_calculation(
             reply_markup=keyboard
         )
         
-        await callback_query.answer("Укажите наценку")
-        
         logger.info(
             f"Запрос наценки отправлен: "
-            f"user_id={user_id}, pair={pair_info['name']}, rate={exchange_rate.rate}"
+            f"user_id={user_id}, pair={pair_format}, rate={exchange_rate.rate}"
         )
         
-    except RapiraAPIError as e:
-        error_message = MessageFormatter.format_error_message('api_error', str(e))
+    except asyncio.TimeoutError:
+        error_message = MessageFormatter.format_error_message(
+            'timeout', 
+            "Превышено время ожидания ответа от сервера курсов валют"
+        )
         
         await callback_query.message.edit_text(
             error_message,
             parse_mode='HTML'
         )
         
-        await callback_query.answer("❌ Ошибка получения курса", show_alert=True)
+        await state.clear()
+        logger.error(f"Таймаут при получении курса для пары {pair_callback}")
+        
+    except RapiraAPIError as e:
+        error_message = MessageFormatter.format_error_message(
+            'api_error', str(e)
+        )
+        
+        await callback_query.message.edit_text(
+            error_message,
+            parse_mode='HTML'
+        )
+        
         await state.clear()
         
         logger.error(f"Ошибка получения курса: {e}")
@@ -131,7 +150,6 @@ async def start_margin_calculation(
             parse_mode='HTML'
         )
         
-        await callback_query.answer("❌ Произошла ошибка", show_alert=True)
         await state.clear()
         
         logger.error(f"Неожиданная ошибка при начале расчета: {e}")
@@ -239,7 +257,7 @@ async def process_amount_input(
         logger.info(
             f"Расчет завершен: "
             f"user_id={message.from_user.id}, "
-            f"pair={pair_info['name']}, "
+            f"pair={pair_info['base']}/{pair_info['quote']}, "
             f"amount={amount} {pair_info['base']}, "
             f"margin={margin_percent}%, "
             f"final_rate={final_rate}"
@@ -336,7 +354,7 @@ async def process_margin_input(
         logger.info(
             f"Расчет наценки завершен: "
             f"user_id={message.from_user.id}, "
-            f"pair={pair_info['name']}, "
+            f"pair={pair_info['base']}/{pair_info['quote']}, "
             f"margin={margin}%, "
             f"final_rate={result.final_rate}"
         )
@@ -532,7 +550,7 @@ async def process_margin_input(
         logger.info(
             f"Показ сравнения курсов: "
             f"user_id={message.from_user.id}, "
-            f"pair={pair_info['name']}, "
+            f"pair={pair_info['base']}/{pair_info['quote']}, "
             f"margin={margin}%, "
             f"final_rate={final_rate}"
         )
