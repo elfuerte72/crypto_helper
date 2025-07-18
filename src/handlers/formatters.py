@@ -358,7 +358,8 @@ class MessageFormatter:
         rate: float
     ) -> str:
         """
-        Форматирование курса в удобном для чтения виде (банковский стиль)
+        Форматирование курса в понятном для пользователя виде
+        Всегда показывает "сколько рублей стоит 1 единица валюты"
         
         Args:
             pair_info: Информация о валютной паре
@@ -367,50 +368,50 @@ class MessageFormatter:
         Returns:
             str: Отформатированный курс
         """
+        return MessageFormatter._format_user_friendly_rate(pair_info, rate)
+    
+    @staticmethod
+    def _format_user_friendly_rate(
+        pair_info: Dict[str, Any], 
+        rate: float
+    ) -> str:
+        """
+        Форматирование курса в понятном формате: всегда показывает
+        "сколько рублей стоит 1 единица другой валюты"
+        
+        Args:
+            pair_info: Информация о валютной паре
+            rate: Курс для форматирования
+            
+        Returns:
+            str: Отформатированный курс в формате "1 USD = 98.25 RUB"
+        """
         base_currency = pair_info['base']
         quote_currency = pair_info['quote']
         
-        # Определяем "главную" валюту для отображения
-        # Приоритет: RUB > USD > EUR > другие фиатные > криптовалюты
-        major_currencies = ['RUB', 'USD', 'EUR', 'GBP', 'CNY', 'JPY']
-        crypto_currencies = ['BTC', 'ETH', 'TON', 'USDT', 'USDC', 'LTC', 'TRX', 'BNB', 'DAI', 'DOGE', 'ETC', 'OP', 'XMR', 'SOL', 'NOT']
-        
-        # Логика инверсии для удобного отображения
-        should_invert = False
-        
-        # Если базовая валюта - RUB, а котируемая - любая другая
+        # Определяем как отображать курс для удобства пользователя
         if base_currency == 'RUB':
-            should_invert = True
-            
-        # Если базовая валюта - другая фиатная, а котируемая - RUB
+            # RUB/USD (0.01018) -> показываем как USD/RUB (98.25)
+            if rate > 0:
+                display_rate = 1.0 / rate
+                display_base = quote_currency
+                display_quote = 'RUB'
+            else:
+                display_rate = rate
+                display_base = base_currency
+                display_quote = quote_currency
         elif quote_currency == 'RUB':
-            should_invert = False
-            
-        # Если базовая валюта - менее приоритетная фиатная, а котируемая - более приоритетная
-        elif (base_currency in major_currencies and quote_currency in major_currencies):
-            base_priority = major_currencies.index(base_currency) if base_currency in major_currencies else 999
-            quote_priority = major_currencies.index(quote_currency) if quote_currency in major_currencies else 999
-            should_invert = base_priority > quote_priority
-            
-        # Если базовая валюта - криптовалюта, а котируемая - фиатная
-        elif base_currency in crypto_currencies and quote_currency in major_currencies:
-            should_invert = False
-            
-        # Если базовая валюта - фиатная, а котируемая - криптовалюта
-        elif base_currency in major_currencies and quote_currency in crypto_currencies:
-            should_invert = True
-            
-        # Применяем инверсию если нужно
-        if should_invert and rate > 0:
-            display_rate = 1.0 / rate
-            display_base = quote_currency
-            display_quote = base_currency
+            # USD/RUB (98.25) -> показываем как есть USD/RUB (98.25)
+            display_rate = rate
+            display_base = base_currency
+            display_quote = 'RUB'
         else:
+            # Для пар без рубля показываем как есть
             display_rate = rate
             display_base = base_currency
             display_quote = quote_currency
         
-        # Форматируем курс
+        # Форматируем курс с правильным количеством знаков
         formatted_rate = MarginCalculator.format_currency_value(
             Decimal(str(display_rate)), display_quote
         )
