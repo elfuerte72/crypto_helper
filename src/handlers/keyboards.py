@@ -58,7 +58,7 @@ class KeyboardBuilder:
     @staticmethod
     def create_margin_input_keyboard() -> InlineKeyboardMarkup:
         """
-        Создание простой клавиатуры для ввода наценки
+        Создание простой клавиатуры для ввода наценки текстом
         
         Returns:
             InlineKeyboardMarkup: Клавиатура управления

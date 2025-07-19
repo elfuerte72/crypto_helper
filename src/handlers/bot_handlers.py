@@ -298,78 +298,7 @@ async def handle_margin_text_input(message: Message, state: FSMContext):
         logger.error(f"Ошибка при обработке текстового ввода наценки: {e}")
 
 
-async def process_margin_input(
-    message: Message,
-    margin: Decimal,
-    state: FSMContext,
-    from_callback: bool = False
-) -> None:
-    """
-    Обработка введенной наценки и расчет итогового курса
-    
-    Args:
-        message: Сообщение пользователя
-        margin: Валидированная наценка
-        state: FSM контекст
-        from_callback: Флаг, что вызов из callback
-    """
-    try:
-        # Получаем сохраненные данные
-        data = await state.get_data()
-        pair_info = data.get('pair_info')
-        exchange_rate_data = data.get('exchange_rate')
-        calculation_amount = data.get('calculation_amount')
-        
-        if not all([pair_info, exchange_rate_data, calculation_amount]):
-            raise MarginCalculationError("Данные расчета потеряны, начните заново")
-        
-        # Рассчитываем результат
-        result = calculate_margin_rate(
-            pair_info=pair_info,
-            amount=Decimal(str(calculation_amount)),
-            margin=margin,
-            exchange_rate_data=exchange_rate_data
-        )
-        
-        # Сохраняем результаты расчета
-        await state.update_data(
-            margin_percent=float(margin),
-            final_rate=float(result.final_rate),
-            rate_change=float(result.rate_change),
-            calculation_result=result.to_dict()
-        )
-        
-        # Переходим в состояние показа результата
-        await state.set_state(MarginCalculationForm.showing_result)
-        
-        # Форматируем и отправляем результат
-        result_message = MessageFormatter.format_calculation_result(result)
-        result_keyboard = create_result_keyboard()
-        
-        if from_callback:
-            await message.edit_text(result_message, parse_mode='HTML', reply_markup=result_keyboard)
-        else:
-            await message.answer(result_message, parse_mode='HTML', reply_markup=result_keyboard)
-        
-        logger.info(
-            f"Расчет наценки завершен: "
-            f"user_id={message.from_user.id}, "
-            f"pair={pair_info['base']}/{pair_info['quote']}, "
-            f"margin={margin}%, "
-            f"final_rate={result.final_rate}"
-        )
-        
-    except Exception as e:
-        error_message = MessageFormatter.format_error_message('generic',
-            "Не удалось рассчитать курс с наценкой. Попробуйте начать заново.")
-        
-        if from_callback:
-            await message.edit_text(error_message, parse_mode='HTML')
-        else:
-            await message.answer(error_message, parse_mode='HTML')
-        
-        await state.clear()
-        logger.error(f"Ошибка при обработке наценки: {e}")
+
 
 
 # Callback обработчики
@@ -523,9 +452,9 @@ async def process_margin_input(
         if not all([pair_info, exchange_rate_data, base_rate]):
             raise MarginCalculationError("Данные расчета потеряны, начните заново")
         
-        # Рассчитываем итоговый курс с наценкой
+        # Рассчитываем итоговый курс с наценкой с учетом типа пары
         from .calculation_logic import MarginCalculator
-        final_rate = MarginCalculator.calculate_final_rate(Decimal(str(base_rate)), margin)
+        final_rate = MarginCalculator.calculate_final_rate(Decimal(str(base_rate)), margin, pair_info)
         
         # Сохраняем данные в FSM
         await state.update_data(

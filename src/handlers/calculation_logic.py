@@ -93,13 +93,19 @@ class MarginCalculator:
         return final_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
     
     @staticmethod
-    def calculate_banking_rates(base_rate: Decimal, margin_percent: Decimal, spread_percent: Decimal = Decimal('0.5')) -> BankingRates:
+    def calculate_banking_rates(
+        base_rate: Decimal, 
+        margin_percent: Decimal, 
+        pair_info: Optional[Dict[str, Any]] = None,
+        spread_percent: Decimal = Decimal('0.5')
+    ) -> BankingRates:
         """
-        Расчет курсов покупки и продажи в банковском стиле
+        Расчет курсов покупки и продажи в банковском стиле с учетом типа пары
         
         Args:
             base_rate: Базовый рыночный курс
             margin_percent: Процентная наценка банка
+            pair_info: Информация о валютной паре для определения типа
             spread_percent: Спрэд между покупкой и продажей (по умолчанию 0.5%)
             
         Returns:
@@ -107,9 +113,13 @@ class MarginCalculator:
         """
         half_spread = spread_percent / Decimal('2')
         
-        # Применяем наценку к базовому курсу
-        margin_multiplier = Decimal('1') + (margin_percent / Decimal('100'))
-        adjusted_rate = base_rate * margin_multiplier
+        # Применяем наценку к базовому курсу с учетом типа пары
+        if pair_info:
+            adjusted_rate = MarginCalculator.calculate_final_rate(base_rate, margin_percent, pair_info)
+        else:
+            # Стандартная логика для обратной совместимости
+            margin_multiplier = Decimal('1') + (margin_percent / Decimal('100'))
+            adjusted_rate = base_rate * margin_multiplier
         
         # Рассчитываем курсы покупки и продажи с учетом спрэда
         buy_rate = adjusted_rate * (Decimal('1') - half_spread / Decimal('100'))
@@ -158,6 +168,29 @@ class MarginCalculator:
         
         # Округляем до 8 знаков после запятой (стандарт для криптовалют)
         return final_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+    
+    @staticmethod
+    def get_effective_margin_for_display(margin_percent: Decimal, pair_info: Dict[str, Any]) -> Decimal:
+        """
+        Получение эффективной наценки для отображения пользователю
+        Показывает реальное влияние на курс с точки зрения пользователя
+        
+        Args:
+            margin_percent: Введенная пользователем наценка
+            pair_info: Информация о валютной паре
+            
+        Returns:
+            Decimal: Эффективная наценка для отображения
+        """
+        pair_type = MarginCalculator.detect_pair_type(pair_info)
+        
+        if pair_type == 'rub_quote':
+            # Для пар X/RUB инвертируем знак для отображения
+            # чтобы показать реальное влияние на курс
+            return -margin_percent
+        else:
+            # Для пар RUB/X отображаем как есть
+            return margin_percent
     
     @staticmethod
     def calculate_banking_exchange_amounts(
@@ -423,25 +456,16 @@ def calculate_banking_rate(
         # Стандартная логика
         adjusted_rate = MarginCalculator.calculate_rub_base_margin(base_rate, margin)
     
-    # Создаем банковские курсы на основе скорректированного курса
-    half_spread = spread_percent / Decimal('2')
-    buy_rate = adjusted_rate * (Decimal('1') - half_spread / Decimal('100'))
-    sell_rate = adjusted_rate * (Decimal('1') + half_spread / Decimal('100'))
-    
-    # Округляем курсы
-    buy_rate = buy_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
-    sell_rate = sell_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
-    
-    banking_rates = BankingRates(
+    # Создаем банковские курсы с учетом типа пары
+    banking_rates = MarginCalculator.calculate_banking_rates(
         base_rate=base_rate,
-        buy_rate=buy_rate,
-        sell_rate=sell_rate,
         margin_percent=margin,
+        pair_info=pair_info,
         spread_percent=spread_percent
     )
     
     # Итоговый курс берем как курс продажи (банк продает клиенту)
-    final_rate = sell_rate
+    final_rate = banking_rates.sell_rate
     
     return CalculationResult(
         pair_info=pair_info,

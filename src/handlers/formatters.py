@@ -46,9 +46,14 @@ class MessageFormatter:
         amount_change_sign = "+" if result.amount_difference >= 0 else "-"
         change_emoji = "📈" if result.rate_change >= 0 else "📉"
         
-        # Определяем цвет для наценки
-        margin_emoji = "📈" if result.margin >= 0 else "📉"
-        margin_sign = "+" if result.margin >= 0 else ""
+        # Получаем эффективную наценку для отображения
+        effective_margin = MarginCalculator.get_effective_margin_for_display(
+            Decimal(str(result.margin)), result.pair_info
+        )
+        
+        # Определяем цвет для наценки на основе эффективного влияния
+        margin_emoji = "📈" if effective_margin >= 0 else "📉"
+        margin_sign = "+" if effective_margin >= 0 else ""
         
         # Временная метка
         timestamp = result.exchange_rate_data.get('timestamp', '')[:19].replace('T', ' ')
@@ -60,7 +65,7 @@ class MessageFormatter:
             
             f"💰 <b>Сумма расчета:</b> <code>{amount_display}</code> {base_currency}\n"
             f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n"
+            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n"
             f"💎 <b>Итоговый курс:</b> {final_rate_display}\n\n"
             
             f"📊 <b>Расчет сумм:</b>\n"
@@ -70,7 +75,7 @@ class MessageFormatter:
             
             f"🔢 <b>Детали расчета:</b>\n"
             f"• Базовый курс: {base_rate_display}\n"
-            f"• Наценка: {margin_sign}{result.margin}% (множитель: {1 + result.margin/100:.6f})\n"
+            f"• Наценка: {margin_sign}{effective_margin}% (множитель: {1 + result.margin/100:.6f})\n"
             f"• Итоговый курс: {final_rate_display}\n"
             f"• Расчет: {amount_display} × итоговый курс = {amount_final_str}\n\n"
             
@@ -276,15 +281,18 @@ class MessageFormatter:
             pair_info, float(final_rate)
         )
         
-        # Определяем знаки и эмодзи
-        margin_sign = "+" if margin >= 0 else ""
-        margin_emoji = "📈" if margin >= 0 else "📉"
+        # Получаем эффективную наценку для отображения
+        effective_margin = MarginCalculator.get_effective_margin_for_display(margin, pair_info)
+        
+        # Определяем знаки и эмодзи на основе эффективной наценки
+        margin_sign = "+" if effective_margin >= 0 else ""
+        margin_emoji = "📈" if effective_margin >= 0 else "📉"
         
         return (
             f"💱 <b>Сравнение курсов</b>\n\n"
             f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n\n"
             f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{margin}%</code>\n"
+            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n"
             f"💰 <b>Курс с наценкой:</b> {final_rate_display}\n\n"
             f"💰 <b>Введите сумму для расчета:</b>\n\n"
             f"Пример: 1000 или 500.50"
@@ -312,9 +320,14 @@ class MessageFormatter:
         amount_display = MarginCalculator.format_amount_display(result.amount, base_currency)
         amount_final_str = MarginCalculator.format_currency_value(result.amount_final_rate, quote_currency)
         
-        # Определяем знаки и эмодзи
-        margin_sign = "+" if result.margin >= 0 else ""
-        margin_emoji = "📈" if result.margin >= 0 else "📉"
+        # Получаем эффективную наценку для отображения
+        effective_margin = MarginCalculator.get_effective_margin_for_display(
+            Decimal(str(result.margin)), result.pair_info
+        )
+        
+        # Определяем знаки и эмодзи на основе эффективного влияния
+        margin_sign = "+" if effective_margin >= 0 else ""
+        margin_emoji = "📈" if effective_margin >= 0 else "📉"
         
         # Если есть банковские курсы
         if result.banking_rates:
@@ -330,7 +343,7 @@ class MessageFormatter:
                 f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n\n"
                 f"💰 <b>Сумма:</b> <code>{amount_display}</code> {base_currency}\n"
                 f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n\n"
+                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n\n"
                 f"🏦 <b>Банковские курсы:</b>\n"
                 f"💵 Покупка: {buy_rate_display}\n"
                 f"💰 Продажа: {sell_rate_display}\n\n"
@@ -347,7 +360,7 @@ class MessageFormatter:
                 f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n\n"
                 f"💰 <b>Сумма:</b> <code>{amount_display}</code> {base_currency}\n"
                 f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n"
+                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n"
                 f"💰 <b>Итоговый курс:</b> {final_rate_display}\n\n"
                 f"💵 <b>Итого к получению:</b> <code>{amount_final_str}</code> {quote_currency}"
             )
@@ -376,40 +389,25 @@ class MessageFormatter:
         rate: float
     ) -> str:
         """
-        Форматирование курса в понятном формате: всегда показывает
-        "сколько рублей стоит 1 единица другой валюты"
+        Форматирование курса в правильном формате пары
+        Показывает курс в том же формате, что и название пары
         
         Args:
             pair_info: Информация о валютной паре
             rate: Курс для форматирования
             
         Returns:
-            str: Отформатированный курс в формате "1 USD = 98.25 RUB"
+            str: Отформатированный курс в формате пары
         """
         base_currency = pair_info['base']
         quote_currency = pair_info['quote']
         
-        # Определяем как отображать курс для удобства пользователя
-        if base_currency == 'RUB':
-            # RUB/USD (0.01018) -> показываем как USD/RUB (98.25)
-            if rate > 0:
-                display_rate = 1.0 / rate
-                display_base = quote_currency
-                display_quote = 'RUB'
-            else:
-                display_rate = rate
-                display_base = base_currency
-                display_quote = quote_currency
-        elif quote_currency == 'RUB':
-            # USD/RUB (98.25) -> показываем как есть USD/RUB (98.25)
-            display_rate = rate
-            display_base = base_currency
-            display_quote = 'RUB'
-        else:
-            # Для пар без рубля показываем как есть
-            display_rate = rate
-            display_base = base_currency
-            display_quote = quote_currency
+        # Показываем курс в том же формате, что и пара
+        # RUB/USDT -> 1 RUB = X USDT
+        # USDT/RUB -> 1 USDT = X RUB
+        display_rate = rate
+        display_base = base_currency
+        display_quote = quote_currency
         
         # Форматируем курс с правильным количеством знаков
         formatted_rate = MarginCalculator.format_currency_value(
@@ -454,15 +452,18 @@ class MessageFormatter:
             pair_info, float(sell_rate)
         )
         
-        # Определяем знаки и эмодзи
-        margin_sign = "+" if margin >= 0 else ""
-        margin_emoji = "📈" if margin >= 0 else "📉"
+        # Получаем эффективную наценку для отображения
+        effective_margin = MarginCalculator.get_effective_margin_for_display(margin, pair_info)
+        
+        # Определяем знаки и эмодзи на основе эффективной наценки
+        margin_sign = "+" if effective_margin >= 0 else ""
+        margin_emoji = "📈" if effective_margin >= 0 else "📉"
         
         return (
             f"🏦 <b>Банковские курсы валют</b>\n\n"
             f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n\n"
             f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{margin}%</code>\n"
+            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n"
             f"📊 <b>Спрэд:</b> <code>{spread_percent}%</code>\n\n"
             f"💰 <b>Курс покупки:</b> {buy_rate_display}\n"
             f"💵 <b>Курс продажи:</b> {sell_rate_display}\n\n"
@@ -491,9 +492,14 @@ class MessageFormatter:
         )
         amount_display = MarginCalculator.format_amount_display(result.amount, base_currency)
         
-        # Определяем цвет для наценки
-        margin_emoji = "📈" if result.margin >= 0 else "📉"
-        margin_sign = "+" if result.margin >= 0 else ""
+        # Получаем эффективную наценку для отображения
+        effective_margin = MarginCalculator.get_effective_margin_for_display(
+            Decimal(str(result.margin)), result.pair_info
+        )
+        
+        # Определяем цвет для наценки на основе эффективного влияния
+        margin_emoji = "📈" if effective_margin >= 0 else "📉"
+        margin_sign = "+" if effective_margin >= 0 else ""
         
         # Временная метка
         timestamp = result.exchange_rate_data.get('timestamp', '')[:19].replace('T', ' ')
@@ -521,7 +527,7 @@ class MessageFormatter:
                 
                 f"💰 <b>Сумма расчета:</b> <code>{amount_display}</code> {base_currency}\n"
                 f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{result.margin}%</code>\n"
+                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n"
                 f"📊 <b>Спрэд:</b> <code>{result.banking_rates.spread_percent}%</code>\n\n"
                 
                 f"🏦 <b>Банковские курсы:</b>\n"
