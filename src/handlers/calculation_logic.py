@@ -45,15 +45,17 @@ class MarginCalculator:
         quote_currency = pair_info['quote']
         
         if base_currency == 'RUB':
-            return 'rub_base'  # RUB/X - плюс процент
+            return 'rub_base'  # RUB/X
         elif quote_currency == 'RUB':
-            return 'rub_quote'  # X/RUB - минус процент
+            return 'rub_quote'  # X/RUB
         else:
             # Для других пар используем стандартную логику
             return 'standard'
     
     @staticmethod
-    def calculate_rub_base_margin(base_rate: Decimal, margin_percent: Decimal) -> Decimal:
+    def calculate_rub_base_margin(
+        base_rate: Decimal, margin_percent: Decimal
+    ) -> Decimal:
         """
         Расчет курса для пар RUB/X (рубль - базовая валюта)
         Применяется ПЛЮС процент: курс = базовый_курс * (1 + наценка/100)
@@ -70,10 +72,14 @@ class MarginCalculator:
         final_rate = base_rate * margin_multiplier
         
         # Округляем до 8 знаков после запятой
-        return final_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+        return final_rate.quantize(
+            Decimal('0.00000001'), rounding=ROUND_HALF_UP
+        )
     
     @staticmethod
-    def calculate_rub_quote_margin(base_rate: Decimal, margin_percent: Decimal) -> Decimal:
+    def calculate_rub_quote_margin(
+        base_rate: Decimal, margin_percent: Decimal
+    ) -> Decimal:
         """
         Расчет курса для пар X/RUB (рубль - котируемая валюта)
         Применяется МИНУС процент: курс = базовый_курс * (1 - наценка/100)
@@ -86,11 +92,14 @@ class MarginCalculator:
             Decimal: Итоговый курс с наценкой
         """
         # Формула: итоговый_курс = базовый_курс * (1 - наценка/100)
+        # Для пар X/RUB наценка вычитается из базового курса
         margin_multiplier = Decimal('1') - (margin_percent / Decimal('100'))
         final_rate = base_rate * margin_multiplier
         
         # Округляем до 8 знаков после запятой
-        return final_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+        return final_rate.quantize(
+            Decimal('0.00000001'), rounding=ROUND_HALF_UP
+        )
     
     @staticmethod
     def calculate_banking_rates(
@@ -115,19 +124,31 @@ class MarginCalculator:
         
         # Применяем наценку к базовому курсу с учетом типа пары
         if pair_info:
-            adjusted_rate = MarginCalculator.calculate_final_rate(base_rate, margin_percent, pair_info)
+            adjusted_rate = MarginCalculator.calculate_final_rate(
+                base_rate, margin_percent, pair_info
+            )
         else:
             # Стандартная логика для обратной совместимости
-            margin_multiplier = Decimal('1') + (margin_percent / Decimal('100'))
+            margin_multiplier = Decimal('1') + (
+                margin_percent / Decimal('100')
+            )
             adjusted_rate = base_rate * margin_multiplier
         
         # Рассчитываем курсы покупки и продажи с учетом спрэда
-        buy_rate = adjusted_rate * (Decimal('1') - half_spread / Decimal('100'))
-        sell_rate = adjusted_rate * (Decimal('1') + half_spread / Decimal('100'))
+        buy_rate = adjusted_rate * (
+            Decimal('1') - half_spread / Decimal('100')
+        )
+        sell_rate = adjusted_rate * (
+            Decimal('1') + half_spread / Decimal('100')
+        )
         
         # Округляем до 8 знаков после запятой
-        buy_rate = buy_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
-        sell_rate = sell_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+        buy_rate = buy_rate.quantize(
+            Decimal('0.00000001'), rounding=ROUND_HALF_UP
+        )
+        sell_rate = sell_rate.quantize(
+            Decimal('0.00000001'), rounding=ROUND_HALF_UP
+        )
         
         return BankingRates(
             base_rate=base_rate,
@@ -138,7 +159,11 @@ class MarginCalculator:
         )
     
     @staticmethod
-    def calculate_final_rate(base_rate: Decimal, margin_percent: Decimal, pair_info: Optional[Dict[str, Any]] = None) -> Decimal:
+    def calculate_final_rate(
+        base_rate: Decimal,
+        margin_percent: Decimal,
+        pair_info: Optional[Dict[str, Any]] = None
+    ) -> Decimal:
         """
         Расчет итогового курса с наценкой с автоматическим выбором логики
         
@@ -155,11 +180,15 @@ class MarginCalculator:
             pair_type = MarginCalculator.detect_pair_type(pair_info)
             
             if pair_type == 'rub_base':
-                # RUB/X - плюс процент
-                return MarginCalculator.calculate_rub_base_margin(base_rate, margin_percent)
+                # RUB/X - ПЛЮС наценка
+                return MarginCalculator.calculate_rub_base_margin(
+                    base_rate, margin_percent
+                )
             elif pair_type == 'rub_quote':
-                # X/RUB - минус процент
-                return MarginCalculator.calculate_rub_quote_margin(base_rate, margin_percent)
+                # X/RUB - МИНУС наценка
+                return MarginCalculator.calculate_rub_quote_margin(
+                    base_rate, margin_percent
+                )
         
         # Стандартная логика для обратной совместимости
         # Формула: итоговый_курс = базовый_курс * (1 + наценка/100)
@@ -167,10 +196,14 @@ class MarginCalculator:
         final_rate = base_rate * margin_multiplier
         
         # Округляем до 8 знаков после запятой (стандарт для криптовалют)
-        return final_rate.quantize(Decimal('0.00000001'), rounding=ROUND_HALF_UP)
+        return final_rate.quantize(
+            Decimal('0.00000001'), rounding=ROUND_HALF_UP
+        )
     
     @staticmethod
-    def get_effective_margin_for_display(margin_percent: Decimal, pair_info: Dict[str, Any]) -> Decimal:
+    def get_effective_margin_for_display(
+        margin_percent: Decimal, pair_info: Dict[str, Any]
+    ) -> Decimal:
         """
         Получение эффективной наценки для отображения пользователю
         Показывает реальное влияние на курс с точки зрения пользователя
@@ -182,15 +215,9 @@ class MarginCalculator:
         Returns:
             Decimal: Эффективная наценка для отображения
         """
-        pair_type = MarginCalculator.detect_pair_type(pair_info)
-        
-        if pair_type == 'rub_quote':
-            # Для пар X/RUB инвертируем знак для отображения
-            # чтобы показать реальное влияние на курс
-            return -margin_percent
-        else:
-            # Для пар RUB/X отображаем как есть
-            return margin_percent
+        # После исправления логики все наценки отображаются как есть
+        # независимо от типа валютной пары
+        return margin_percent
     
     @staticmethod
     def calculate_banking_exchange_amounts(
@@ -204,17 +231,23 @@ class MarginCalculator:
         Args:
             amount: Сумма для обмена
             banking_rates: Курсы покупки и продажи
-            operation_type: Тип операции - 'buy' (клиент покупает) или 'sell' (клиент продает)
+            operation_type: Тип операции - 'buy' (клиент покупает) или
+                          'sell' (клиент продает)
             
         Returns:
-            Tuple[Decimal, Decimal, Decimal, Decimal]: (сумма_по_базовому_курсу, сумма_по_курсу_покупки, сумма_по_курсу_продажи, прибыль_банка)
+            Tuple[Decimal, Decimal, Decimal, Decimal]: (
+                сумма_по_базовому_курсу, сумма_по_курсу_покупки,
+                сумма_по_курсу_продажи, прибыль_банка
+            )
         """
         amount_base_rate = amount * banking_rates.base_rate
         amount_buy_rate = amount * banking_rates.buy_rate
         amount_sell_rate = amount * banking_rates.sell_rate
         
         # Прибыль банка - разница между курсами продажи и покупки
-        bank_profit = amount * (banking_rates.sell_rate - banking_rates.buy_rate)
+        bank_profit = amount * (
+            banking_rates.sell_rate - banking_rates.buy_rate
+        )
         
         return amount_base_rate, amount_buy_rate, amount_sell_rate, bank_profit
     
@@ -233,7 +266,9 @@ class MarginCalculator:
             final_rate: Итоговый курс с наценкой
             
         Returns:
-            Tuple[Decimal, Decimal, Decimal]: (сумма_по_базовому_курсу, сумма_по_итоговому_курсу, разница)
+            Tuple[Decimal, Decimal, Decimal]: (
+                сумма_по_базовому_курсу, сумма_по_итоговому_курсу, разница
+            )
         """
         amount_base_rate = amount * base_rate
         amount_final_rate = amount * final_rate
@@ -331,16 +366,27 @@ class CalculationResult:
         
         # Если есть банковские курсы, используем их
         if banking_rates:
-            self.amount_base_rate, self.amount_buy_rate, self.amount_sell_rate, self.bank_profit = \
-                MarginCalculator.calculate_banking_exchange_amounts(amount, banking_rates)
+            (
+                self.amount_base_rate, self.amount_buy_rate,
+                self.amount_sell_rate, self.bank_profit
+            ) = MarginCalculator.calculate_banking_exchange_amounts(
+                amount, banking_rates
+            )
             
             # Для совместимости с существующим кодом
-            self.amount_final_rate = self.amount_sell_rate  # Курс продажи как итоговый
-            self.amount_difference = self.amount_sell_rate - self.amount_base_rate
+            # Курс продажи как итоговый
+            self.amount_final_rate = self.amount_sell_rate
+            self.amount_difference = (
+                self.amount_sell_rate - self.amount_base_rate
+            )
         else:
             # Старая логика для совместимости
-            self.amount_base_rate, self.amount_final_rate, self.amount_difference = \
-                MarginCalculator.calculate_exchange_amounts(amount, base_rate, final_rate)
+            (
+                self.amount_base_rate, self.amount_final_rate,
+                self.amount_difference
+            ) = MarginCalculator.calculate_exchange_amounts(
+                amount, base_rate, final_rate
+            )
             self.amount_buy_rate = self.amount_final_rate
             self.amount_sell_rate = self.amount_final_rate
             self.bank_profit = self.amount_difference
@@ -424,7 +470,7 @@ def calculate_banking_rate(
     amount: Decimal,
     margin: Decimal,
     exchange_rate_data: Dict[str, Any],
-    spread_percent: Decimal = Decimal('0.5')
+    spread_percent: Decimal = Decimal('0')
 ) -> CalculationResult:
     """
     Расчет курса в банковском стиле с курсами покупки и продажи
@@ -445,22 +491,31 @@ def calculate_banking_rate(
     # Определяем тип пары для правильного расчета наценки
     pair_type = MarginCalculator.detect_pair_type(pair_info)
     
-    # Рассчитываем базовый курс с учетом типа пары
+    # Рассчитываем курс с учетом типа пары ОДИН РАЗ
     if pair_type == 'rub_base':
-        # RUB/X - плюс процент
-        adjusted_rate = MarginCalculator.calculate_rub_base_margin(base_rate, margin)
+        # RUB/X - ПЛЮС наценка
+        adjusted_rate = MarginCalculator.calculate_rub_base_margin(
+            base_rate, margin
+        )
     elif pair_type == 'rub_quote':
-        # X/RUB - минус процент
-        adjusted_rate = MarginCalculator.calculate_rub_quote_margin(base_rate, margin)
+        # X/RUB - МИНУС наценка
+        adjusted_rate = MarginCalculator.calculate_rub_quote_margin(
+            base_rate, margin
+        )
     else:
         # Стандартная логика
-        adjusted_rate = MarginCalculator.calculate_rub_base_margin(base_rate, margin)
+        adjusted_rate = MarginCalculator.calculate_rub_base_margin(
+            base_rate, margin
+        )
     
-    # Создаем банковские курсы с учетом типа пары
+    # Создаем банковские курсы БЕЗ повторного применения наценки
+    # Передаем уже рассчитанный курс как базовый и обнуляем наценку
     banking_rates = MarginCalculator.calculate_banking_rates(
-        base_rate=base_rate,
-        margin_percent=margin,
-        pair_info=pair_info,
+        base_rate=adjusted_rate,  # Используем уже рассчитанный курс
+        # Обнуляем наценку, чтобы избежать двойного применения
+        margin_percent=Decimal('0'),
+        # Не передаем pair_info, чтобы избежать повторного расчета
+        pair_info=None,
         spread_percent=spread_percent
     )
     
@@ -470,6 +525,7 @@ def calculate_banking_rate(
     return CalculationResult(
         pair_info=pair_info,
         amount=amount,
+        # Сохраняем оригинальный базовый курс для отображения
         base_rate=base_rate,
         margin=margin,
         final_rate=final_rate,
@@ -507,7 +563,9 @@ def calculate_margin_rate(
     else:
         # Старая логика для совместимости с новой логикой
         base_rate = Decimal(str(exchange_rate_data['rate']))
-        final_rate = MarginCalculator.calculate_final_rate(base_rate, margin, pair_info)
+        final_rate = MarginCalculator.calculate_final_rate(
+            base_rate, margin, pair_info
+        )
         
         return CalculationResult(
             pair_info=pair_info,

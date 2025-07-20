@@ -67,7 +67,9 @@ def test_banking_rates():
     spread = Decimal('0.5')  # 0.5% спрэд
     
     banking_rates = MarginCalculator.calculate_banking_rates(
-        base_rate, margin, spread
+        base_rate=base_rate, 
+        margin_percent=margin, 
+        spread_percent=spread
     )
     
     print(f"  Базовый курс: {banking_rates.base_rate}")
@@ -121,6 +123,53 @@ def test_formatting():
     print(formatted)
     print()
 
+def test_margin_logic():
+    """Тест новой логики наценок"""
+    print("🧪 Тестирование новой логики наценок...")
+    
+    # Тест 1: RUB/USD - ПЛЮС наценка
+    print("\n  --- RUB/USD (ПЛЮС наценка) ---")
+    pair_info = get_currency_pair_info('rubusd')
+    base_rate = Decimal('0.01')
+    margin = Decimal('2.0')  # +2%
+    expected_rate = base_rate * Decimal('1.02')  # 0.01 * 1.02 = 0.0102
+    
+    calculated_rate = MarginCalculator.calculate_rub_base_margin(base_rate, margin)
+    print(f"    Базовый курс: {base_rate}")
+    print(f"    Наценка: +{margin}%")
+    print(f"    Ожидаемый курс: {expected_rate}")
+    print(f"    Рассчитанный курс: {calculated_rate}")
+    print(f"    Проверка: {'✅' if calculated_rate == expected_rate else '❌'}")
+    
+    # Тест 2: USD/RUB - МИНУС наценка
+    print("\n  --- USD/RUB (МИНУС наценка) ---")
+    pair_info = get_currency_pair_info('usdrub')
+    base_rate = Decimal('100.0')
+    margin = Decimal('2.0')  # +2% вводит пользователь, но применяется как МИНУС
+    expected_rate = base_rate * Decimal('0.98')  # 100.0 * 0.98 = 98.0
+    
+    calculated_rate = MarginCalculator.calculate_rub_quote_margin(base_rate, margin)
+    print(f"    Базовый курс: {base_rate}")
+    print(f"    Наценка: {margin}% (применяется как МИНУС)")
+    print(f"    Ожидаемый курс: {expected_rate}")
+    print(f"    Рассчитанный курс: {calculated_rate}")
+    print(f"    Проверка: {'✅' if calculated_rate == expected_rate else '❌'}")
+    
+    # Тест 3: USDT/RUB - МИНУС наценка
+    print("\n  --- USDT/RUB (МИНУС наценка) ---")
+    pair_info = get_currency_pair_info('usdtrub')
+    base_rate = Decimal('95.0')
+    margin = Decimal('3.0')  # +3% вводит пользователь, но применяется как МИНУС
+    expected_rate = base_rate * Decimal('0.97')  # 95.0 * 0.97 = 92.15
+    
+    calculated_rate = MarginCalculator.calculate_rub_quote_margin(base_rate, margin)
+    print(f"    Базовый курс: {base_rate}")
+    print(f"    Наценка: {margin}% (применяется как МИНУС)")
+    print(f"    Ожидаемый курс: {expected_rate}")
+    print(f"    Рассчитанный курс: {calculated_rate}")
+    print(f"    Проверка: {'✅' if calculated_rate == expected_rate else '❌'}")
+    print()
+
 def test_all_pairs():
     """Тест всех валютных пар"""
     print("🧪 Тестирование всех валютных пар...")
@@ -142,6 +191,10 @@ def test_all_pairs():
                 pair_info, amount, Decimal('2.5'), exchange_rate_data
             )
             
+            # Определяем тип пары
+            pair_type = MarginCalculator.detect_pair_type(pair_info)
+            logic_type = "ПЛЮС" if pair_type == 'rub_base' else "МИНУС"
+            
             # Форматируем курс
             base_rate_display = MessageFormatter._format_rate_display(
                 pair_info, float(result.base_rate)
@@ -153,6 +206,7 @@ def test_all_pairs():
                 pair_info, float(result.banking_rates.sell_rate)
             )
             
+            print(f"    Логика наценки: {logic_type}")
             print(f"    Базовый курс: {base_rate_display}")
             print(f"    Курс покупки: {buy_rate_display}")
             print(f"    Курс продажи: {sell_rate_display}")
@@ -162,8 +216,9 @@ def test_all_pairs():
             print(f"    ❌ Пара {pair_key} не найдена")
 
 if __name__ == "__main__":
-    print("🚀 Тестирование банковской логики курсов валют\n")
+    print("🚀 Тестирование новой логики наценок\n")
     
+    test_margin_logic()
     test_rate_display()
     test_banking_rates()
     test_calculation_result()
