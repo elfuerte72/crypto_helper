@@ -21,7 +21,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import config
 from utils.logger import get_bot_logger
 from handlers.admin_handlers import admin_router
-from handlers.margin_calculation import margin_router
+from handlers.bot_handlers import margin_router
 
 # Initialize logger
 logger = get_bot_logger()

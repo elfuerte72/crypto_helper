@@ -45,17 +45,18 @@ class Config:
     # Environment Detection
     IS_LOCAL_DEVELOPMENT: bool = bool(os.getenv('LOCAL_BOT_TOKEN'))
     
-    # Supported Currency Pairs (криптовалюты с рублем)
-    SUPPORTED_PAIRS = [
-        # Основные пары из Rapira API (прямые)
-        'USDT/RUB', 'BTC/USDT', 'ETH/USDT', 'TON/USDT',
-        
-        # Поддерживаемые пары через расчет
-        'RUB/BTC', 'BTC/RUB',
-        'RUB/TON', 'TON/RUB',
-        'RUB/USDT', 'USDT/RUB',
-        'RUB/ETH', 'ETH/RUB'
-    ]
+    # New Exchange Flow Configuration (Новая логика пошагового обмена)
+    # Поддерживаемые исходные валюты (что отдает клиент)
+    SUPPORTED_SOURCE_CURRENCIES = ['RUB', 'USDT']
+    
+    # Поддерживаемые целевые валюты по исходным
+    TARGETS_FOR_RUB = ['USDT', 'USD', 'EUR']  # Клиент отдает RUB
+    TARGETS_FOR_USDT = ['RUB']                # Клиент отдает USDT
+    
+    # Валидационные правила для новой логики
+    MIN_MARGIN_PERCENT = 0.1   # Минимальная наценка
+    MAX_MARGIN_PERCENT = 10.0  # Максимальная наценка
+    MIN_EXCHANGE_AMOUNT = 1.0  # Минимальная сумма обмена
     
     @classmethod
     def validate(cls) -> bool:
