@@ -289,11 +289,9 @@ class MessageFormatter:
         margin_emoji = "📈" if effective_margin >= 0 else "📉"
         
         return (
-            f"💱 <b>Сравнение курсов</b>\n\n"
+            f"💱 <b>Курс с {margin_sign}{effective_margin}%</b>\n\n"
             f"{pair_info['emoji']} <b>{pair_info['name']}</b>\n\n"
-            f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-            f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n"
-            f"💰 <b>Курс с наценкой:</b> {final_rate_display}\n\n"
+            f"💰 <b>Курс с {margin_sign}{effective_margin}%:</b> {final_rate_display}\n\n"
             f"💰 <b>Введите сумму для расчета:</b>\n\n"
             f"Пример: 1000 или 500.50"
         )
@@ -331,22 +329,15 @@ class MessageFormatter:
         
         # Если есть банковские курсы
         if result.banking_rates:
-            buy_rate_display = MessageFormatter._format_rate_display(
-                result.pair_info, float(result.banking_rates.buy_rate)
-            )
-            sell_rate_display = MessageFormatter._format_rate_display(
-                result.pair_info, float(result.banking_rates.sell_rate)
+            final_rate_display = MessageFormatter._format_rate_display(
+                result.pair_info, float(result.final_rate)
             )
             
             return (
                 f"✅ <b>Расчет завершен</b>\n\n"
                 f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n\n"
                 f"💰 <b>Сумма:</b> <code>{amount_display}</code> {base_currency}\n"
-                f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n\n"
-                f"🏦 <b>Банковские курсы:</b>\n"
-                f"💵 Покупка: {buy_rate_display}\n"
-                f"💰 Продажа: {sell_rate_display}\n\n"
+                f"💰 <b>Курс с {margin_sign}{effective_margin}%:</b> {final_rate_display}\n\n"
                 f"💵 <b>Итого к получению:</b> <code>{amount_final_str}</code> {quote_currency}"
             )
         else:
@@ -359,9 +350,7 @@ class MessageFormatter:
                 f"✅ <b>Расчет завершен</b>\n\n"
                 f"{result.pair_info['emoji']} <b>{result.pair_info['name']}</b>\n\n"
                 f"💰 <b>Сумма:</b> <code>{amount_display}</code> {base_currency}\n"
-                f"💹 <b>Базовый курс:</b> {base_rate_display}\n"
-                f"{margin_emoji} <b>Наценка:</b> <code>{margin_sign}{effective_margin}%</code>\n"
-                f"💰 <b>Итоговый курс:</b> {final_rate_display}\n\n"
+                f"💰 <b>Курс с {margin_sign}{effective_margin}%:</b> {final_rate_display}\n\n"
                 f"💵 <b>Итого к получению:</b> <code>{amount_final_str}</code> {quote_currency}"
             )
     
