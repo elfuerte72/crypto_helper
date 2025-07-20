@@ -38,14 +38,13 @@ class TestUserFriendlyErrorFormatter:
             "Rapira API", Currency.RUB, Currency.USDT
         )
         
-        assert "⏱️" in result
-        assert "Сервис временно недоступен" in result
+        assert "⚠️" in result  # Обновленная иконка
+        assert "Курс валют недоступен" in result
         assert "RUB → USDT" in result
         assert "Rapira API" in result
-        assert "Возможные причины" in result
-        assert "Медленное соединение" in result
-        assert "Попробуйте" in result
-        assert "30-60 секунд" in result
+        assert "Причина:" in result
+        assert "Попробуйте:" in result
+        assert "устаревшие курсы" in result  # Проверяем новое сообщение о безопасности
     
     def test_format_api_error_unauthorized(self):
         """Тест форматирования ошибки авторизации API"""
@@ -55,11 +54,12 @@ class TestUserFriendlyErrorFormatter:
         )
         
         assert "❌" in result
-        assert "Ошибка получения курса" in result
+        assert "Курс валют недоступен" in result  # Обновленный текст
         assert "RUB → USD" in result
-        assert "🔑 Проблема с авторизацией" in result
+        assert "🔑 Проблема с доступом" in result  # Обновленный текст
         assert "администратору" in result
         assert "/admin_bot" in result
+        assert "устаревшие курсы" in result
     
     def test_format_api_error_rate_limit(self):
         """Тест форматирования ошибки лимита запросов"""
@@ -96,8 +96,9 @@ class TestUserFriendlyErrorFormatter:
         assert "❌" in result
         assert "RUB → AED" in result
         assert "Service temporarily unavailable" in result
-        assert "💬 Описание ошибки" in result
+        assert "💬 Описание:" in result  # Обновленный текст
         assert "Попробуйте еще раз" in result
+        assert "устаревшие курсы" in result
     
     def test_format_unexpected_error(self):
         """Тест форматирования неожиданной ошибки"""
@@ -105,13 +106,12 @@ class TestUserFriendlyErrorFormatter:
             Currency.RUB, Currency.ZAR
         )
         
-        assert "🛠️" in result
-        assert "Техническая ошибка" in result
+        assert "🚨" in result  # Обновленная иконка
+        assert "Курс валют недоступен" in result  # Обновленный текст
         assert "RUB → ZAR" in result
-        assert "неожиданная ошибка" in result
-        assert "Что делать" in result
-        assert "другую валютную пару" in result
+        assert "Что делать:" in result
         assert "администратору" in result
+        assert "устаревшие курсы" in result  # Новое предупреждение
     
     def test_format_operation_cancelled(self):
         """Тест форматирования сообщения об отмене операции"""
@@ -409,7 +409,7 @@ class TestErrorRecoveryGuidance:
         timeout_error = UserFriendlyErrorFormatter.format_api_timeout_error(
             "APILayer", Currency.USD, Currency.EUR
         )
-        assert "причины" in timeout_error.lower()
+        assert "причина" in timeout_error.lower()  # Обновленный текст
         assert ("соединение" in timeout_error.lower() or 
                 "интернет" in timeout_error.lower())
 

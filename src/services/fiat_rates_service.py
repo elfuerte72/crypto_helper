@@ -536,27 +536,26 @@ class FiatRatesService:
     
     async def get_fiat_exchange_rate(self, pair: str) -> Optional[ExchangeRate]:
         """
-        Получает ExchangeRate для фиатной пары с fallback поддержкой
+        Получает ExchangeRate для фиатной пары БЕЗ fallback - только актуальные курсы
         
         Args:
             pair: Валютная пара (например, 'USD/ZAR')
         
         Returns:
-            ExchangeRate объект или None
+            ExchangeRate объект или None (БЕЗ устаревших курсов!)
         """
         try:
             from_currency, to_currency = pair.split('/')
             
-            # Используем fallback по умолчанию
-            rate = await self.get_fiat_rate(from_currency, to_currency, use_fallback=True)
+            # ОТКЛЮЧАЕМ fallback - только актуальные курсы!
+            rate = await self.get_fiat_rate(from_currency, to_currency, use_fallback=False)
             
             if rate is not None:
                 exchange_rate = await self.create_fiat_exchange_rate(from_currency, to_currency, rate)
-                # Отмечаем, что это fallback данные если нужно
-                if hasattr(self, '_cache') and f"rates_{from_currency}" not in getattr(self, '_cache', {}):
-                    exchange_rate.source = 'apilayer_fallback'
                 return exchange_rate
             
+            # Если курс недоступен - возвращаем None (НЕ fallback!)
+            logger.warning(f"Real-time rate for {pair} is not available - no fallback used for user safety")
             return None
             
         except ValueError:
@@ -585,11 +584,11 @@ class FiatRatesService:
             'session_active': self.session is not None and not self.session.closed
         }
         
-        # Выполняем тестовый запрос к APILayer
+        # Выполняем тестовый запрос к APILayer БЕЗ fallback
         start_time = asyncio.get_event_loop().time()
         try:
-            # Простой запрос для проверки
-            rate = await self.get_fiat_rate('USD', 'EUR')
+            # Простой запрос для проверки - БЕЗ fallback!
+            rate = await self.get_fiat_rate('USD', 'EUR', use_fallback=False)
             
             end_time = asyncio.get_event_loop().time()
             response_time = (end_time - start_time) * 1000
