@@ -536,16 +536,17 @@ class APIService:
                     if quote_currency == 'USDT':
                         usdt_rub_rate = self._find_direct_rate('USDT/RUB', all_rates)
                         if usdt_rub_rate:
-                            # RUB/USDT = 1 / USDT/RUB
-                            cross_rate = 1.0 / usdt_rub_rate
+                            # ВАЖНО: Для RUB/USDT возвращаем прямой курс USDT/RUB
+                            # Это нужно для правильного применения наценки
+                            # В calculation_logic.py логика обработает инверсию правильно
                             
-                            logger.debug(f"Calculated {pair} rate: 1 / {usdt_rub_rate:.2f} = {cross_rate:.8f}")
+                            logger.debug(f"Found {pair} base rate (USDT/RUB): {usdt_rub_rate:.2f}")
                             
                             return ExchangeRate(
                                 pair=pair,
-                                rate=round(cross_rate, 8),
+                                rate=round(usdt_rub_rate, 8),  # Возвращаем курс USDT/RUB как есть
                                 timestamp=datetime.now().isoformat(),
-                                source='calculated_via_usdt_rub'
+                                source='rapira_usdt_rub_direct'
                             )
                     else:
                         # Ищем USDT/RUB и CRYPTO/USDT
