@@ -72,18 +72,10 @@ def create_target_currency_keyboard(
 
 
 def create_margin_input_keyboard() -> InlineKeyboardMarkup:
-    """Создать клавиатуру для ввода наценки с предустановленными значениями"""
+    """Создать клавиатуру для ввода наценки (только навигационные кнопки)"""
     builder = InlineKeyboardBuilder()
     
-    # Быстрые кнопки с популярными значениями наценки
-    preset_margins = ["0.5", "1.0", "1.5", "2.0", "2.5", "3.0"]
-    
-    for margin in preset_margins:
-        builder.button(
-            text=f"{margin}%",
-            callback_data=f"margin_{margin}"
-        )
-    
+    # Только навигационные кнопки - пользователь вводит наценку вручную
     builder.button(
         text="⬅️ Назад",
         callback_data="back_to_target"
@@ -93,26 +85,16 @@ def create_margin_input_keyboard() -> InlineKeyboardMarkup:
         callback_data="cancel_exchange"
     )
     
-    # Размещаем по 3 кнопки наценки в ряд
-    builder.adjust(3, 3, 2)
+    # Размещаем кнопки в ряд
+    builder.adjust(2)
     return builder.as_markup()
 
 
 def create_amount_input_keyboard() -> InlineKeyboardMarkup:
-    """Создать клавиатуру для ввода суммы с предустановленными значениями"""
+    """Создать клавиатуру для ввода суммы (только навигационные кнопки)"""
     builder = InlineKeyboardBuilder()
     
-    # Быстрые кнопки с популярными суммами
-    preset_amounts = ["1000", "5000", "10000", "50000", "100000", "500000"]
-    
-    for amount in preset_amounts:
-        # Форматируем сумму для отображения
-        formatted_amount = f"{int(amount):,}".replace(",", " ")
-        builder.button(
-            text=formatted_amount,
-            callback_data=f"amount_{amount}"
-        )
-    
+    # Только навигационные кнопки - пользователь вводит сумму вручную
     builder.button(
         text="⬅️ Назад",
         callback_data="back_to_margin"
@@ -122,8 +104,8 @@ def create_amount_input_keyboard() -> InlineKeyboardMarkup:
         callback_data="cancel_exchange"
     )
     
-    # Размещаем по 3 кнопки сумм в ряд
-    builder.adjust(3, 3, 2)
+    # Размещаем кнопки в ряд
+    builder.adjust(2)
     return builder.as_markup()
 
 

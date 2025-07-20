@@ -20,6 +20,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # Import configuration and handlers
 from config import config
 from utils.logger import get_bot_logger
+from handlers.admin_flow import admin_flow_router  # Новый флоу
 from handlers.admin_handlers import admin_router
 from handlers.bot_handlers import margin_router
 
@@ -33,6 +34,7 @@ dp = Dispatcher(storage=storage)
 
 
 # Include routers
+dp.include_router(admin_flow_router)  # Новый основной флоу
 dp.include_router(admin_router)
 dp.include_router(margin_router)
 
@@ -82,7 +84,7 @@ async def main():
     logger.info("🚀 Запуск Crypto Helper Bot...")
     logger.info("📊 Рабочий режим: Production")
     logger.info(f"🔗 Rapira API URL: {config.RAPIRA_API_URL}")
-    logger.info(f"📋 Поддерживаемых пар: {len(config.SUPPORTED_PAIRS)}")
+    logger.info(f"📋 Поддерживаемые валюты: {config.SUPPORTED_SOURCE_CURRENCIES}")
     
     try:
         # Start polling

@@ -113,7 +113,9 @@ class CryptoHelperBot:
         """Start the bot"""
         logger.info("🚀 Starting Crypto Helper Bot...")
         logger.info("Bot starting in production mode")
-        logger.info(f"Supported pairs: {len(config.SUPPORTED_PAIRS)}")
+        logger.info(f"Source currencies: {config.SUPPORTED_SOURCE_CURRENCIES}")
+        logger.info(f"RUB targets: {config.TARGETS_FOR_RUB}")
+        logger.info(f"USDT targets: {config.TARGETS_FOR_USDT}")
         
         try:
             # Get bot info
