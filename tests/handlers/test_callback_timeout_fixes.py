@@ -276,17 +276,23 @@ class TestAsyncAPIHandlers:
         with patch('handlers.admin_flow.SafeMessageEditor.safe_edit_message', new_callable=AsyncMock) as mock_edit:
             mock_edit.return_value = True
             
-            # Мокаем таймаут
-            with patch('handlers.admin_flow.ExchangeCalculator.get_base_rate_for_pair', new_callable=AsyncMock) as mock_get_rate:
-                mock_get_rate.side_effect = asyncio.TimeoutError()
+            # Мокаем UserFriendlyErrorFormatter
+            with patch('handlers.admin_flow.UserFriendlyErrorFormatter.format_api_timeout_error') as mock_format_error:
+                mock_format_error.return_value = "⚠️ Ошибка таймаута APILayer"
                 
-                with patch('asyncio.wait_for', side_effect=asyncio.TimeoutError()):
-                    result = await get_exchange_rate_with_loading(
-                        mock_message, source_currency, target_currency
-                    )
+                # Мокаем таймаут
+                with patch('handlers.admin_flow.ExchangeCalculator.get_base_rate_for_pair', new_callable=AsyncMock) as mock_get_rate:
+                    mock_get_rate.side_effect = asyncio.TimeoutError()
+                    
+                    with patch('asyncio.wait_for', side_effect=asyncio.TimeoutError()):
+                        result = await get_exchange_rate_with_loading(
+                            mock_message, source_currency, target_currency
+                        )
         
         assert result is None
-        # Должно показать сообщение об ошибке таймаута
+        # Проверяем что был вызван UserFriendlyErrorFormatter
+        mock_format_error.assert_called_once_with("APILayer", source_currency, target_currency)
+        # Проверяем что сообщение об ошибке было показано
         error_calls = [call for call in mock_edit.call_args_list 
                       if "таймаута" in str(call)]
         assert len(error_calls) > 0

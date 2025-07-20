@@ -26,7 +26,8 @@ from .keyboards import (
 from .formatters import (
     MessageFormatter, 
     SafeMessageEditor, 
-    LoadingMessageFormatter
+    LoadingMessageFormatter,
+    UserFriendlyErrorFormatter
 )
 from .validators import ExchangeValidator, ValidationResult
 
@@ -53,30 +54,32 @@ logger = get_bot_logger()
 admin_flow_router = Router()
 
 
-# === АСИНХРОННАЯ ОБРАБОТКА API ЗАПРОСОВ (TASK-CRYPTO-002) ===
+# === АСИНХРОННАЯ ОБРАБОТКА API ЗАПРОСОВ (TASK-CRYPTO-002 + TASK-CRYPTO-004) ===
 
 async def get_exchange_rate_with_loading(
     message: Message,
     source_currency: Currency,
-    target_currency: Currency
+    target_currency: Currency,
+    cancellation_token: Optional[asyncio.Event] = None
 ) -> Optional[Decimal]:
     """
     Получить курс обмена с показом промежуточных сообщений загрузки
-    Решает проблему callback timeout показом прогресса
+    Решает проблему callback timeout показом прогресса + добавляет возможность отмены (TASK-CRYPTO-004)
     
     Args:
         message: Сообщение для обновления
         source_currency: Исходная валюта
         target_currency: Целевая валюта
+        cancellation_token: Токен для отмены операции
         
     Returns:
-        Optional[Decimal]: Курс обмена или None при ошибке
+        Optional[Decimal]: Курс обмена или None при ошибке/отмене
     """
     # Определяем источник API
     api_name = "Rapira API" if source_currency == Currency.USDT or target_currency == Currency.USDT else "APILayer"
     
-    # Показываем сообщение загрузки
-    loading_text = LoadingMessageFormatter.format_api_loading_message(api_name)
+    # Показываем сообщение загрузки с кнопкой отмены (TASK-CRYPTO-004)
+    loading_text = LoadingMessageFormatter.format_api_loading_message_with_cancel(api_name)
     edit_success = await SafeMessageEditor.safe_edit_message(
         message, loading_text, parse_mode='HTML'
     )
@@ -84,24 +87,77 @@ async def get_exchange_rate_with_loading(
     if not edit_success:
         logger.warning("Не удалось обновить сообщение загрузки")
     
-    # Выполняем API запрос с меньшим таймаутом
-    try:
-        # Используем сокращенный таймаут для callback обработки
-        base_rate = await asyncio.wait_for(
-            ExchangeCalculator.get_base_rate_for_pair(source_currency, target_currency),
-            timeout=config.CALLBACK_API_TIMEOUT
+    # Проверяем отмену перед выполнением API запроса
+    if cancellation_token and cancellation_token.is_set():
+        logger.info("ℹ️ Операция отменена пользователем")
+        cancel_text = UserFriendlyErrorFormatter.format_operation_cancelled()
+        await SafeMessageEditor.safe_edit_message(
+            message, cancel_text, parse_mode='HTML'
         )
+        return None
+    
+    # Выполняем API запрос с меньшим таймаутом и проверкой отмены
+    try:
+        # Показываем прогресс с шагами
+        progress_text = LoadingMessageFormatter.format_loading_with_progress(
+            f"Получение курса от {api_name}", 1, 2
+        )
+        await SafeMessageEditor.safe_edit_message(
+            message, progress_text, parse_mode='HTML'
+        )
+        
+        # Используем сокращенный таймаут для callback обработки
+        api_task = asyncio.create_task(
+            ExchangeCalculator.get_base_rate_for_pair(source_currency, target_currency)
+        )
+        
+        # Ждем API респонс с проверкой отмены
+        if cancellation_token:
+            done, pending = await asyncio.wait(
+                [api_task, asyncio.create_task(cancellation_token.wait())],
+                timeout=config.CALLBACK_API_TIMEOUT,
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # Отменяем оставшиеся задачи
+            for task in pending:
+                task.cancel()
+            
+            if cancellation_token.is_set():
+                logger.info("ℹ️ Операция отменена во время API запроса")
+                cancel_text = UserFriendlyErrorFormatter.format_operation_cancelled()
+                await SafeMessageEditor.safe_edit_message(
+                    message, cancel_text, parse_mode='HTML'
+                )
+                return None
+                
+            if api_task in done:
+                base_rate = await api_task
+            else:
+                raise asyncio.TimeoutError()
+        else:
+            base_rate = await asyncio.wait_for(
+                api_task,
+                timeout=config.CALLBACK_API_TIMEOUT
+            )
+        
+        # Показываем финальный прогресс
+        final_progress_text = LoadingMessageFormatter.format_loading_with_progress(
+            f"Курс получен от {api_name}", 2, 2
+        )
+        await SafeMessageEditor.safe_edit_message(
+            message, final_progress_text, parse_mode='HTML'
+        )
+        
         logger.info(f"✅ Получен базовый курс: {base_rate}")
         return base_rate
         
     except asyncio.TimeoutError:
         logger.error(f"❌ API timeout ({config.CALLBACK_API_TIMEOUT}s) для пары {source_currency.value}/{target_currency.value}")
         
-        # Показываем ошибку таймаута
-        timeout_text = (
-            f"⚠️ <b>Ошибка таймаута</b>\n\n"
-            f"❌ Сервер {api_name} не отвечает ({config.CALLBACK_API_TIMEOUT}с)\n\n"
-            f"🔄 Попробуйте еще раз через несколько секунд"
+        # Показываем понятное сообщение об ошибке (TASK-CRYPTO-004)
+        timeout_text = UserFriendlyErrorFormatter.format_api_timeout_error(
+            api_name, source_currency, target_currency
         )
         await SafeMessageEditor.safe_edit_message(
             message, timeout_text, parse_mode='HTML'
@@ -111,11 +167,9 @@ async def get_exchange_rate_with_loading(
     except (RapiraAPIError, APILayerError) as e:
         logger.error(f"❌ Ошибка API: {e}")
         
-        # Показываем ошибку API
-        api_error_text = (
-            f"❌ <b>Ошибка API</b>\n\n"
-            f"⚠️ {str(e)}\n\n"
-            f"🔄 Попробуйте еще раз через несколько секунд"
+        # Показываем понятное сообщение об ошибке API (TASK-CRYPTO-004)
+        api_error_text = UserFriendlyErrorFormatter.format_api_error(
+            api_name, str(e), source_currency, target_currency
         )
         await SafeMessageEditor.safe_edit_message(
             message, api_error_text, parse_mode='HTML'
@@ -125,11 +179,9 @@ async def get_exchange_rate_with_loading(
     except Exception as e:
         logger.error(f"❌ Неожиданная ошибка: {e}")
         
-        # Показываем общую ошибку
-        error_text = (
-            "❌ <b>Внутренняя ошибка</b>\n\n"
-            "⚠️ Произошла неожиданная ошибка\n\n"
-            "🔄 Попробуйте еще раз"
+        # Показываем понятное сообщение о неожиданной ошибке (TASK-CRYPTO-004)
+        error_text = UserFriendlyErrorFormatter.format_unexpected_error(
+            source_currency, target_currency
         )
         await SafeMessageEditor.safe_edit_message(
             message, error_text, parse_mode='HTML'
