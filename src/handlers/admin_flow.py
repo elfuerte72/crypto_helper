@@ -183,6 +183,49 @@ class ExchangeCalculator:
             raise APILayerError(f"Не удалось получить курс IDR/RUB: {str(e)}")
     
     @staticmethod
+    async def get_usdt_to_fiat_rate(target_currency: Currency) -> Decimal:
+        """
+        Получить курс USDT к фиатной валюте через кросс-конвертацию
+        Логика: USDT/RUB ÷ TARGET/RUB = USDT/TARGET (обратный курс)
+        Пример: USDT/USD = USDT/RUB ÷ USD/RUB = 100 ÷ 100 = 1.0
+        """
+        logger.info(f"Получение курса USDT/{target_currency.value} через кросс-конвертацию")
+        
+        try:
+            # Получаем USDT/RUB
+            usdt_rub_rate = await ExchangeCalculator.get_usdt_rub_rate()
+            
+            # Получаем TARGET/RUB
+            if target_currency == Currency.USD:
+                target_rub_rate = await ExchangeCalculator.get_usd_rub_rate()
+            elif target_currency == Currency.EUR:
+                target_rub_rate = await ExchangeCalculator.get_eur_rub_rate()
+            elif target_currency == Currency.THB:
+                target_rub_rate = await ExchangeCalculator.get_thb_rub_rate()
+            elif target_currency == Currency.AED:
+                target_rub_rate = await ExchangeCalculator.get_aed_rub_rate()
+            elif target_currency == Currency.ZAR:
+                target_rub_rate = await ExchangeCalculator.get_zar_rub_rate()
+            elif target_currency == Currency.IDR:
+                target_rub_rate = await ExchangeCalculator.get_idr_rub_rate()
+            else:
+                raise ValueError(f"Неподдерживаемая валюта для кросс-конвертации: {target_currency.value}")
+            
+            # Рассчитываем кросс-курс: USDT/TARGET = USDT/RUB ÷ TARGET/RUB
+            cross_rate = usdt_rub_rate / target_rub_rate
+            
+            logger.info(
+                f"✅ Кросс-курс USDT/{target_currency.value}: "
+                f"USDT/RUB ({usdt_rub_rate}) ÷ {target_currency.value}/RUB ({target_rub_rate}) = {cross_rate}"
+            )
+            
+            return cross_rate.quantize(Decimal('0.000001'))  # Округляем до 6 знаков
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка кросс-конвертации USDT/{target_currency.value}: {e}")
+            raise
+    
+    @staticmethod
     async def get_base_rate_for_pair(source_currency: Currency, target_currency: Currency) -> Decimal:
         """
         Получить базовый курс для валютной пары - СТРОГО С API
@@ -228,6 +271,10 @@ class ExchangeCalculator:
                 # USDT → RUB: получаем USDT/RUB
                 return await ExchangeCalculator.get_usdt_rub_rate()
                 
+            elif source_currency == Currency.USDT and target_currency in [Currency.USD, Currency.EUR, Currency.THB, Currency.AED, Currency.ZAR, Currency.IDR]:
+                # USDT → фиатная валюта: получаем кросс-курс
+                return await ExchangeCalculator.get_usdt_to_fiat_rate(target_currency)
+                
             else:
                 raise ValueError(f"Неподдерживаемая валютная пара: {source_currency.value} → {target_currency.value}")
                 
@@ -260,10 +307,14 @@ class ExchangeCalculator:
             # Клиент отдает рубли - увеличиваем курс (меньше получит криптовалюты/фиата)
             final_rate = base_rate * (Decimal('1') + margin_factor)
             logger.info(f"RUB→{target.value}: {base_rate} × (1 + {margin_percent}/100) = {final_rate}")
-        else:
-            # Клиент отдает криптовалюту - уменьшаем курс (меньше получит рублей)
+        elif source == Currency.USDT:
+            # Клиент отдает USDT - уменьшаем курс (меньше получит целевой валюты)
             final_rate = base_rate * (Decimal('1') - margin_factor)
-            logger.info(f"USDT→RUB: {base_rate} × (1 - {margin_percent}/100) = {final_rate}")
+            logger.info(f"USDT→{target.value}: {base_rate} × (1 - {margin_percent}/100) = {final_rate}")
+        else:
+            # На будущее - другие исходные валюты
+            final_rate = base_rate * (Decimal('1') - margin_factor)
+            logger.info(f"{source.value}→{target.value}: {base_rate} × (1 - {margin_percent}/100) = {final_rate}")
         
         return final_rate.quantize(Decimal('0.01'))
     
@@ -287,10 +338,14 @@ class ExchangeCalculator:
             # Делим сумму рублей на курс
             result = amount / final_rate
             logger.info(f"RUB→{target.value}: {amount} / {final_rate} = {result}")
-        else:
-            # Умножаем сумму криптовалюты на курс
+        elif source == Currency.USDT:
+            # Умножаем сумму USDT на курс
             result = amount * final_rate
-            logger.info(f"USDT→RUB: {amount} × {final_rate} = {result}")
+            logger.info(f"USDT→{target.value}: {amount} × {final_rate} = {result}")
+        else:
+            # На будущее - другие исходные валюты
+            result = amount * final_rate
+            logger.info(f"{source.value}→{target.value}: {amount} × {final_rate} = {result}")
         
         return result.quantize(Decimal('0.01'))
 

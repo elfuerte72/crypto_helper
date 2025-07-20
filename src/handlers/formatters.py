@@ -137,11 +137,14 @@ class MessageFormatter:
         if source == Currency.RUB:
             return f"<b>1 {target.value} = {formatted_rate} RUB</b>"
         # Для USDT → RUB: показываем сколько рублей за 1 USDT  
-        elif target == Currency.RUB:
-            return f"<b>1 {source.value} = {formatted_rate} RUB</b>"
+        elif source == Currency.USDT and target == Currency.RUB:
+            return f"<b>1 USDT = {formatted_rate} RUB</b>"
+        # Для USDT → другие валюты: показываем сколько целевой валюты за 1 USDT
+        elif source == Currency.USDT:
+            return f"<b>1 USDT = {formatted_rate} {target.value}</b>"
         # Остальные случаи (на будущее)
         else:
-            return f"<b>1 {target.value} = {formatted_rate} {source.value}</b>"
+            return f"<b>1 {source.value} = {formatted_rate} {target.value}</b>"
     
     @staticmethod
     def _format_unified_rate(rate: Decimal) -> str:

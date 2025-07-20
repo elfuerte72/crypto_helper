@@ -43,7 +43,7 @@ class ExchangeFlow(StatesGroup):
 SUPPORTED_SOURCES = [Currency.RUB, Currency.USDT]
 
 TARGETS_FOR_RUB = [Currency.USDT, Currency.USD, Currency.EUR, Currency.THB, Currency.AED, Currency.ZAR, Currency.IDR]
-TARGETS_FOR_USDT = [Currency.RUB]
+TARGETS_FOR_USDT = [Currency.RUB, Currency.USD, Currency.EUR, Currency.THB, Currency.AED, Currency.ZAR, Currency.IDR]
 
 # Валидационные правила
 MIN_MARGIN = 0.1

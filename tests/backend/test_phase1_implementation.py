@@ -71,10 +71,16 @@ class TestFSMStates:
         assert Currency.IDR in rub_targets
         assert len(rub_targets) == 7  # RUB теперь поддерживает 7 валют
         
-        # Для USDT доступен только RUB
+        # Для USDT доступны все 7 валют
         usdt_targets = get_available_targets(Currency.USDT)
         assert Currency.RUB in usdt_targets
-        assert len(usdt_targets) == 1
+        assert Currency.USD in usdt_targets
+        assert Currency.EUR in usdt_targets
+        assert Currency.THB in usdt_targets
+        assert Currency.AED in usdt_targets
+        assert Currency.ZAR in usdt_targets
+        assert Currency.IDR in usdt_targets
+        assert len(usdt_targets) == 7
     
     def test_is_valid_pair(self):
         """Тест валидации валютных пар"""
@@ -84,14 +90,22 @@ class TestFSMStates:
         assert is_valid_pair(Currency.RUB, Currency.EUR) == True
         assert is_valid_pair(Currency.USDT, Currency.RUB) == True
         
+        # Валидные пары USDT (новые)
+        assert is_valid_pair(Currency.USDT, Currency.USD) == True
+        assert is_valid_pair(Currency.USDT, Currency.EUR) == True
+        assert is_valid_pair(Currency.USDT, Currency.THB) == True
+        assert is_valid_pair(Currency.USDT, Currency.AED) == True
+        assert is_valid_pair(Currency.USDT, Currency.ZAR) == True
+        assert is_valid_pair(Currency.USDT, Currency.IDR) == True
+        
         # Валидные пары (новые)
         assert is_valid_pair(Currency.RUB, Currency.THB) == True
         assert is_valid_pair(Currency.RUB, Currency.AED) == True
         assert is_valid_pair(Currency.RUB, Currency.ZAR) == True
         assert is_valid_pair(Currency.RUB, Currency.IDR) == True
         
-        # Невалидные пары
-        assert is_valid_pair(Currency.USDT, Currency.USD) == False
+        # Невалидные пары (обратные направления)
+        assert is_valid_pair(Currency.USD, Currency.USDT) == False  # USD → USDT не поддерживается
         assert is_valid_pair(Currency.USD, Currency.EUR) == False
         assert is_valid_pair(Currency.RUB, Currency.RUB) == False
         # Новые валюты не могут быть исходными
@@ -99,6 +113,7 @@ class TestFSMStates:
         assert is_valid_pair(Currency.AED, Currency.RUB) == False
         assert is_valid_pair(Currency.ZAR, Currency.RUB) == False
         assert is_valid_pair(Currency.IDR, Currency.RUB) == False
+        assert is_valid_pair(Currency.EUR, Currency.USDT) == False  # EUR → USDT не поддерживается
     
     def test_constants(self):
         """Тест констант валидации"""
@@ -274,6 +289,13 @@ class TestKeyboards:
                 buttons_text.append(button.text)
         
         assert any("RUB" in text for text in buttons_text)
+        # Новые валюты для USDT
+        assert any("USD" in text for text in buttons_text)
+        assert any("EUR" in text for text in buttons_text)
+        assert any("THB" in text for text in buttons_text)
+        assert any("AED" in text for text in buttons_text)
+        assert any("ZAR" in text for text in buttons_text)
+        assert any("IDR" in text for text in buttons_text)
     
     def test_create_margin_input_keyboard(self):
         """Тест создания клавиатуры ввода наценки"""
