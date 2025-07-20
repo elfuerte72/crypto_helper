@@ -42,6 +42,11 @@ class TestFSMStates:
         assert Currency.USDT == "USDT"
         assert Currency.USD == "USD"
         assert Currency.EUR == "EUR"
+        # Новые валюты
+        assert Currency.THB == "THB"
+        assert Currency.AED == "AED"
+        assert Currency.ZAR == "ZAR"
+        assert Currency.IDR == "IDR"
     
     def test_exchange_flow_states(self):
         """Тест FSM состояний"""
@@ -54,11 +59,17 @@ class TestFSMStates:
     
     def test_get_available_targets(self):
         """Тест получения доступных целевых валют"""
-        # Для RUB доступны USDT, USD, EUR
+        # Для RUB доступны USDT, USD, EUR, THB, AED, ZAR, IDR
         rub_targets = get_available_targets(Currency.RUB)
         assert Currency.USDT in rub_targets
         assert Currency.USD in rub_targets
         assert Currency.EUR in rub_targets
+        # Новые валюты
+        assert Currency.THB in rub_targets
+        assert Currency.AED in rub_targets
+        assert Currency.ZAR in rub_targets
+        assert Currency.IDR in rub_targets
+        assert len(rub_targets) == 7  # RUB теперь поддерживает 7 валют
         
         # Для USDT доступен только RUB
         usdt_targets = get_available_targets(Currency.USDT)
@@ -67,16 +78,27 @@ class TestFSMStates:
     
     def test_is_valid_pair(self):
         """Тест валидации валютных пар"""
-        # Валидные пары
+        # Валидные пары (старые)
         assert is_valid_pair(Currency.RUB, Currency.USDT) == True
         assert is_valid_pair(Currency.RUB, Currency.USD) == True
         assert is_valid_pair(Currency.RUB, Currency.EUR) == True
         assert is_valid_pair(Currency.USDT, Currency.RUB) == True
         
+        # Валидные пары (новые)
+        assert is_valid_pair(Currency.RUB, Currency.THB) == True
+        assert is_valid_pair(Currency.RUB, Currency.AED) == True
+        assert is_valid_pair(Currency.RUB, Currency.ZAR) == True
+        assert is_valid_pair(Currency.RUB, Currency.IDR) == True
+        
         # Невалидные пары
         assert is_valid_pair(Currency.USDT, Currency.USD) == False
         assert is_valid_pair(Currency.USD, Currency.EUR) == False
         assert is_valid_pair(Currency.RUB, Currency.RUB) == False
+        # Новые валюты не могут быть исходными
+        assert is_valid_pair(Currency.THB, Currency.RUB) == False
+        assert is_valid_pair(Currency.AED, Currency.RUB) == False
+        assert is_valid_pair(Currency.ZAR, Currency.RUB) == False
+        assert is_valid_pair(Currency.IDR, Currency.RUB) == False
     
     def test_constants(self):
         """Тест констант валидации"""
@@ -235,6 +257,11 @@ class TestKeyboards:
         assert any("USDT" in text for text in buttons_text)
         assert any("USD" in text for text in buttons_text)
         assert any("EUR" in text for text in buttons_text)
+        # Новые валюты
+        assert any("THB" in text for text in buttons_text)
+        assert any("AED" in text for text in buttons_text)
+        assert any("ZAR" in text for text in buttons_text)
+        assert any("IDR" in text for text in buttons_text)
         assert any("Назад" in text for text in buttons_text)
         
         # Для USDT
@@ -254,13 +281,14 @@ class TestKeyboards:
         assert keyboard is not None
         assert len(keyboard.inline_keyboard) > 0
         
-        # Проверяем наличие предустановленных значений
-        buttons_data = []
+        # Проверяем наличие навигационных кнопок
+        buttons_text = []
         for row in keyboard.inline_keyboard:
             for button in row:
-                buttons_data.append(button.callback_data)
+                buttons_text.append(button.text)
         
-        assert any("margin_" in data for data in buttons_data)
+        assert any("Назад" in text for text in buttons_text)
+        assert any("Отмена" in text for text in buttons_text)
     
     def test_create_amount_input_keyboard(self):
         """Тест создания клавиатуры ввода суммы"""
@@ -268,13 +296,14 @@ class TestKeyboards:
         assert keyboard is not None
         assert len(keyboard.inline_keyboard) > 0
         
-        # Проверяем наличие предустановленных значений
-        buttons_data = []
+        # Проверяем наличие навигационных кнопок
+        buttons_text = []
         for row in keyboard.inline_keyboard:
             for button in row:
-                buttons_data.append(button.callback_data)
+                buttons_text.append(button.text)
         
-        assert any("amount_" in data for data in buttons_data)
+        assert any("Назад" in text for text in buttons_text)
+        assert any("Отмена" in text for text in buttons_text)
     
     def test_create_result_keyboard(self):
         """Тест создания клавиатуры результата"""
@@ -315,7 +344,7 @@ class TestFormatters:
             Currency.RUB, Currency.USDT, Decimal("80.00")
         )
         assert "RUB → USDT" in message
-        assert "80" in message
+        assert "1 USDT = 80,00 RUB" in message  # Новый формат курса
         assert "наценку" in message
     
     def test_format_final_result(self):
@@ -328,7 +357,8 @@ class TestFormatters:
         assert "RUB → USDT" in message
         assert "1 000 RUB" in message
         assert "12.25 USDT" in message
-        assert "2%" in message
+        # Процент наценки не отображается в финальном сообщении
+        assert "Итоговый курс" in message
     
     def test_format_error_messages(self):
         """Тест форматирования сообщений об ошибках"""

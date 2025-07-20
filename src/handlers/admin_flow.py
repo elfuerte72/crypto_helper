@@ -107,6 +107,82 @@ class ExchangeCalculator:
             raise APILayerError(f"Не удалось получить курс EUR/RUB: {str(e)}")
     
     @staticmethod
+    async def get_thb_rub_rate() -> Decimal:
+        """Получить курс THB/RUB от APILayer"""
+        try:
+            logger.info("Получение курса THB/RUB от APILayer")
+            rate = await fiat_rates_service.get_fiat_exchange_rate('THB/RUB')
+            
+            if rate and rate.rate > 0:
+                result = Decimal(str(rate.rate))
+                logger.info(f"✅ Получен курс THB/RUB: {result} (источник: {rate.source})")
+                return result
+            else:
+                logger.error("APILayer вернул невалидный курс THB/RUB")
+                raise APILayerError("Невалидный курс THB/RUB")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения курса THB/RUB: {e}")
+            raise APILayerError(f"Не удалось получить курс THB/RUB: {str(e)}")
+    
+    @staticmethod
+    async def get_aed_rub_rate() -> Decimal:
+        """Получить курс AED/RUB от APILayer"""
+        try:
+            logger.info("Получение курса AED/RUB от APILayer")
+            rate = await fiat_rates_service.get_fiat_exchange_rate('AED/RUB')
+            
+            if rate and rate.rate > 0:
+                result = Decimal(str(rate.rate))
+                logger.info(f"✅ Получен курс AED/RUB: {result} (источник: {rate.source})")
+                return result
+            else:
+                logger.error("APILayer вернул невалидный курс AED/RUB")
+                raise APILayerError("Невалидный курс AED/RUB")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения курса AED/RUB: {e}")
+            raise APILayerError(f"Не удалось получить курс AED/RUB: {str(e)}")
+    
+    @staticmethod
+    async def get_zar_rub_rate() -> Decimal:
+        """Получить курс ZAR/RUB от APILayer"""
+        try:
+            logger.info("Получение курса ZAR/RUB от APILayer")
+            rate = await fiat_rates_service.get_fiat_exchange_rate('ZAR/RUB')
+            
+            if rate and rate.rate > 0:
+                result = Decimal(str(rate.rate))
+                logger.info(f"✅ Получен курс ZAR/RUB: {result} (источник: {rate.source})")
+                return result
+            else:
+                logger.error("APILayer вернул невалидный курс ZAR/RUB")
+                raise APILayerError("Невалидный курс ZAR/RUB")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения курса ZAR/RUB: {e}")
+            raise APILayerError(f"Не удалось получить курс ZAR/RUB: {str(e)}")
+    
+    @staticmethod
+    async def get_idr_rub_rate() -> Decimal:
+        """Получить курс IDR/RUB от APILayer"""
+        try:
+            logger.info("Получение курса IDR/RUB от APILayer")
+            rate = await fiat_rates_service.get_fiat_exchange_rate('IDR/RUB')
+            
+            if rate and rate.rate > 0:
+                result = Decimal(str(rate.rate))
+                logger.info(f"✅ Получен курс IDR/RUB: {result} (источник: {rate.source})")
+                return result
+            else:
+                logger.error("APILayer вернул невалидный курс IDR/RUB")
+                raise APILayerError("Невалидный курс IDR/RUB")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения курса IDR/RUB: {e}")
+            raise APILayerError(f"Не удалось получить курс IDR/RUB: {str(e)}")
+    
+    @staticmethod
     async def get_base_rate_for_pair(source_currency: Currency, target_currency: Currency) -> Decimal:
         """
         Получить базовый курс для валютной пары - СТРОГО С API
@@ -131,6 +207,22 @@ class ExchangeCalculator:
             elif source_currency == Currency.RUB and target_currency == Currency.EUR:
                 # RUB → EUR: получаем EUR/RUB
                 return await ExchangeCalculator.get_eur_rub_rate()
+                
+            elif source_currency == Currency.RUB and target_currency == Currency.THB:
+                # RUB → THB: получаем THB/RUB
+                return await ExchangeCalculator.get_thb_rub_rate()
+                
+            elif source_currency == Currency.RUB and target_currency == Currency.AED:
+                # RUB → AED: получаем AED/RUB
+                return await ExchangeCalculator.get_aed_rub_rate()
+                
+            elif source_currency == Currency.RUB and target_currency == Currency.ZAR:
+                # RUB → ZAR: получаем ZAR/RUB
+                return await ExchangeCalculator.get_zar_rub_rate()
+                
+            elif source_currency == Currency.RUB and target_currency == Currency.IDR:
+                # RUB → IDR: получаем IDR/RUB
+                return await ExchangeCalculator.get_idr_rub_rate()
                 
             elif source_currency == Currency.USDT and target_currency == Currency.RUB:
                 # USDT → RUB: получаем USDT/RUB

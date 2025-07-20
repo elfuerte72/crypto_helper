@@ -14,6 +14,10 @@ class Currency(str, Enum):
     USDT = "USDT"
     USD = "USD"
     EUR = "EUR"
+    THB = "THB"  # Тайский бат
+    AED = "AED"  # Дирхам ОАЭ
+    ZAR = "ZAR"  # Южноафриканский рэнд
+    IDR = "IDR"  # Индонезийская рупия
 
 
 class ExchangeFlow(StatesGroup):
@@ -38,7 +42,7 @@ class ExchangeFlow(StatesGroup):
 # Конфигурация поддерживаемых направлений обмена
 SUPPORTED_SOURCES = [Currency.RUB, Currency.USDT]
 
-TARGETS_FOR_RUB = [Currency.USDT, Currency.USD, Currency.EUR]
+TARGETS_FOR_RUB = [Currency.USDT, Currency.USD, Currency.EUR, Currency.THB, Currency.AED, Currency.ZAR, Currency.IDR]
 TARGETS_FOR_USDT = [Currency.RUB]
 
 # Валидационные правила

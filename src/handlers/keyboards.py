@@ -49,6 +49,14 @@ def create_target_currency_keyboard(
             text = "💵 USD (Доллары)"
         elif currency == Currency.EUR:
             text = "💶 EUR (Евро)"
+        elif currency == Currency.THB:
+            text = "🇹🇭 THB (Тайский бат)"
+        elif currency == Currency.AED:
+            text = "🇦🇪 AED (Дирхам ОАЭ)"
+        elif currency == Currency.ZAR:
+            text = "🇿🇦 ZAR (Рэнд ЮАР)"
+        elif currency == Currency.IDR:
+            text = "🇮🇩 IDR (Рупия)"
         else:
             text = currency.value
             

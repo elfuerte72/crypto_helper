@@ -42,7 +42,7 @@ class MessageFormatter:
     ) -> str:
         """Форматировать сообщение после выбора целевой валюты"""
         pair_text = MessageFormatter._get_pair_text(source, target)
-        rate_text = MessageFormatter._format_unified_rate(base_rate)
+        rate_text = MessageFormatter._format_rate_for_pair(source, target, base_rate)
         
         return (
             f"✅ Направление: <b>{pair_text}</b>\n"
@@ -60,8 +60,8 @@ class MessageFormatter:
     ) -> str:
         """Форматировать сообщение после выбора наценки"""
         pair_text = MessageFormatter._get_pair_text(source, target)
-        base_rate_text = MessageFormatter._format_unified_rate(base_rate)
-        final_rate_text = MessageFormatter._format_unified_rate(final_rate)
+        base_rate_text = MessageFormatter._format_rate_for_pair(source, target, base_rate)
+        final_rate_text = MessageFormatter._format_rate_for_pair(source, target, final_rate)
         
         return (
             f"✅ Направление: <b>{pair_text}</b>\n"
@@ -82,7 +82,7 @@ class MessageFormatter:
     ) -> str:
         """Форматировать финальный результат сделки"""
         pair_text = MessageFormatter._get_pair_text(source, target)
-        rate_text = MessageFormatter._format_unified_rate(final_rate)
+        rate_text = MessageFormatter._format_rate_for_pair(source, target, final_rate)
         
         # Форматируем суммы
         amount_text = f"{amount:,.0f}".replace(",", " ")
@@ -129,8 +129,23 @@ class MessageFormatter:
         return f"{source.value} → {target.value}"
     
     @staticmethod
+    def _format_rate_for_pair(source: Currency, target: Currency, rate: Decimal) -> str:
+        """Форматировать курс с учетом валютной пары"""
+        formatted_rate = f"{rate:.2f}".replace(".", ",")
+        
+        # Для RUB → любая валюта: показываем сколько рублей за 1 единицу целевой валюты
+        if source == Currency.RUB:
+            return f"<b>1 {target.value} = {formatted_rate} RUB</b>"
+        # Для USDT → RUB: показываем сколько рублей за 1 USDT  
+        elif target == Currency.RUB:
+            return f"<b>1 {source.value} = {formatted_rate} RUB</b>"
+        # Остальные случаи (на будущее)
+        else:
+            return f"<b>1 {target.value} = {formatted_rate} {source.value}</b>"
+    
+    @staticmethod
     def _format_unified_rate(rate: Decimal) -> str:
-        """Форматировать курс в унифицированном виде"""
+        """Форматировать курс в унифицированном виде (DEPRECATED)"""
         formatted_rate = f"{rate:.2f}".replace(".", ",")
         return f"<b>1 USDT = {formatted_rate} RUB</b>"
 
