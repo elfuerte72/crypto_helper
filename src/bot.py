@@ -8,11 +8,12 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message
 from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
 
 try:
     from .config import config
     from .utils.logger import get_bot_logger
-    from .handlers.admin_handlers import admin_router
+    from .handlers.admin_flow import admin_flow_router  # Новый флоу
     from .handlers.bot_handlers import margin_router  # Обновленный импорт
 except ImportError:
     # Handle direct execution
@@ -21,7 +22,7 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(__file__))
     from config import config
     from utils.logger import get_bot_logger
-    from handlers.admin_handlers import admin_router
+    from handlers.admin_flow import admin_flow_router  # Новый флоу
     from handlers.bot_handlers import margin_router  # Обновленный импорт
 
 # Initialize logger
@@ -34,13 +35,14 @@ class CryptoHelperBot:
     def __init__(self):
         """Initialize bot instance"""
         self.bot = Bot(token=config.BOT_TOKEN)
-        self.dp = Dispatcher()
+        # Инициализируем Dispatcher с FSM хранилищем
+        self.dp = Dispatcher(storage=MemoryStorage())
         self._setup_handlers()
     
     def _setup_handlers(self):
         """Setup message handlers"""
-        # Include admin router
-        self.dp.include_router(admin_router)
+        # Include new admin flow router (Новая логика)
+        self.dp.include_router(admin_flow_router)
         
         # Include margin calculation router
         self.dp.include_router(margin_router)
@@ -61,8 +63,8 @@ class CryptoHelperBot:
             "/start - Показать это сообщение\n"
             "/help - Справка по командам\n"
             "/test - Тестовая команда\n"
-            "/admin_bot - Панель администратора\n\n"
-            "🔧 <b>Статус:</b> MVP версия в разработке"
+            "/admin_bot - Калькулятор обмена валют (НОВОЕ!)\n\n"
+            "🔧 <b>Статус:</b> Фаза 1 реализована"
         )
         
         await message.reply(welcome_text, parse_mode='HTML')

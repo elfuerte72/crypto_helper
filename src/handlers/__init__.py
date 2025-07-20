@@ -6,6 +6,7 @@ Handlers package for Crypto Helper Bot (НОВАЯ ЛОГИКА)
 
 # Импорты основных компонентов (новая логика)
 from .admin_handlers import admin_router
+from .admin_flow import admin_flow_router
 from .bot_handlers import margin_router, start_margin_calculation
 from .currency_pairs import get_currency_pair_info, is_valid_currency_pair
 from .calculation_logic import calculate_margin_rate
@@ -18,10 +19,12 @@ from .keyboards import (
     create_result_keyboard
 )
 from .fsm_states import ExchangeFlow, Currency
+from .validators import ExchangeValidator, ValidationResult
 
 __all__ = [
     # Роутеры
     'admin_router',
+    'admin_flow_router',
     'margin_router',
     
     # Основные функции
@@ -46,5 +49,9 @@ __all__ = [
     
     # FSM (новая логика)
     'ExchangeFlow',
-    'Currency'
+    'Currency',
+    
+    # Валидация
+    'ExchangeValidator',
+    'ValidationResult'
 ]
