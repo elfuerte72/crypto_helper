@@ -2,6 +2,7 @@
 """
 Admin Flow для Crypto Helper Bot (Новая логика)
 Основной флоу для команды /admin_bot с пошаговым выбором валют
+ТОЛЬКО РЕАЛЬНЫЕ API - БЕЗ ЗАГЛУШЕК!
 """
 
 from decimal import Decimal
@@ -24,35 +25,21 @@ from .keyboards import (
 from .formatters import MessageFormatter
 from .validators import ExchangeValidator, ValidationResult
 
-# Импорт API сервисов
+# Импорт API сервисов - ТОЛЬКО РЕАЛЬНЫЕ API
 try:
-    from ..services.api_service import APIService, APIError
-    from ..services.fiat_rates_service import FiatRatesService
-except ImportError:
-    # Заглушки для сервисов, если они недоступны
-    class APIService:
-        @staticmethod
-        async def get_usdt_rub_rate() -> Decimal:
-            return Decimal('80.00')  # Заглушка
-    
-    class FiatRatesService:
-        @staticmethod
-        async def get_usd_usdt_rate() -> Decimal:
-            return Decimal('0.998')  # Заглушка
-        
-        @staticmethod
-        async def get_eur_usdt_rate() -> Decimal:
-            return Decimal('0.920')  # Заглушка
-    
-    class APIError(Exception):
-        pass
-
-try:
+    from ..services.api_service import api_service
+    from ..services.fiat_rates_service import fiat_rates_service
+    from ..services.models import RapiraAPIError, APILayerError
     from ..utils.logger import get_bot_logger
 except ImportError:
-    import logging
-    def get_bot_logger():
-        return logging.getLogger(__name__)
+    # Для прямого запуска файлов
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    from services.api_service import api_service
+    from services.fiat_rates_service import fiat_rates_service
+    from services.models import RapiraAPIError, APILayerError
+    from utils.logger import get_bot_logger
 
 # Initialize components
 logger = get_bot_logger()
@@ -60,53 +47,104 @@ admin_flow_router = Router()
 
 
 class ExchangeCalculator:
-    """Калькулятор для расчета курсов и сумм обмена"""
+    """Калькулятор для расчета курсов и сумм обмена - ТОЛЬКО РЕАЛЬНЫЕ API"""
     
     @staticmethod
-    async def get_base_rate() -> Decimal:
-        """Получить базовый курс USDT/RUB"""
+    async def get_usdt_rub_rate() -> Decimal:
+        """Получить курс USDT/RUB от Rapira API"""
         try:
-            api_service = APIService()
-            rate = await api_service.get_usdt_rub_rate()
-            logger.info(f"Получен базовый курс USDT/RUB: {rate}")
-            return rate
-        except APIError as e:
-            logger.error(f"Ошибка получения курса от API: {e}")
-            # Fallback курс
-            return Decimal('80.00')
+            logger.info("Получение курса USDT/RUB от Rapira API")
+            rate = await api_service.get_exchange_rate('USDT/RUB')
+            
+            if rate and rate.rate > 0:
+                result = Decimal(str(rate.rate))
+                logger.info(f"✅ Получен курс USDT/RUB: {result} (источник: {rate.source})")
+                return result
+            else:
+                logger.error("Rapira API вернул невалидный курс USDT/RUB")
+                raise RapiraAPIError("Невалидный курс USDT/RUB")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения курса USDT/RUB: {e}")
+            raise RapiraAPIError(f"Не удалось получить курс USDT/RUB: {str(e)}")
     
     @staticmethod
-    async def get_cross_rate(target_currency: Currency) -> Decimal:
-        """Получить кросс-курс для других валют через USDT"""
-        if target_currency == Currency.USD:
-            try:
-                fiat_service = FiatRatesService()
-                usd_usdt_rate = await fiat_service.get_usd_usdt_rate()
-                usdt_rub_rate = await ExchangeCalculator.get_base_rate()
-                # 1 USD = X RUB через USDT
-                cross_rate = usdt_rub_rate / usd_usdt_rate
-                logger.info(f"Кросс-курс USD/RUB: {cross_rate}")
-                return cross_rate
-            except Exception as e:
-                logger.error(f"Ошибка расчета кросс-курса USD: {e}")
-                return Decimal('82.00')  # Fallback
+    async def get_usd_rub_rate() -> Decimal:
+        """Получить курс USD/RUB от APILayer"""
+        try:
+            logger.info("Получение курса USD/RUB от APILayer")
+            rate = await fiat_rates_service.get_fiat_exchange_rate('USD/RUB')
+            
+            if rate and rate.rate > 0:
+                result = Decimal(str(rate.rate))
+                logger.info(f"✅ Получен курс USD/RUB: {result} (источник: {rate.source})")
+                return result
+            else:
+                logger.error("APILayer вернул невалидный курс USD/RUB")
+                raise APILayerError("Невалидный курс USD/RUB")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения курса USD/RUB: {e}")
+            raise APILayerError(f"Не удалось получить курс USD/RUB: {str(e)}")
+    
+    @staticmethod
+    async def get_eur_rub_rate() -> Decimal:
+        """Получить курс EUR/RUB от APILayer"""
+        try:
+            logger.info("Получение курса EUR/RUB от APILayer")
+            rate = await fiat_rates_service.get_fiat_exchange_rate('EUR/RUB')
+            
+            if rate and rate.rate > 0:
+                result = Decimal(str(rate.rate))
+                logger.info(f"✅ Получен курс EUR/RUB: {result} (источник: {rate.source})")
+                return result
+            else:
+                logger.error("APILayer вернул невалидный курс EUR/RUB")
+                raise APILayerError("Невалидный курс EUR/RUB")
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения курса EUR/RUB: {e}")
+            raise APILayerError(f"Не удалось получить курс EUR/RUB: {str(e)}")
+    
+    @staticmethod
+    async def get_base_rate_for_pair(source_currency: Currency, target_currency: Currency) -> Decimal:
+        """
+        Получить базовый курс для валютной пары - СТРОГО С API
         
-        elif target_currency == Currency.EUR:
-            try:
-                fiat_service = FiatRatesService()
-                eur_usdt_rate = await fiat_service.get_eur_usdt_rate()
-                usdt_rub_rate = await ExchangeCalculator.get_base_rate()
-                # 1 EUR = X RUB через USDT
-                cross_rate = usdt_rub_rate / eur_usdt_rate
-                logger.info(f"Кросс-курс EUR/RUB: {cross_rate}")
-                return cross_rate
-            except Exception as e:
-                logger.error(f"Ошибка расчета кросс-курса EUR: {e}")
-                return Decimal('87.00')  # Fallback
+        Логика:
+        - RUB → USDT: получаем USDT/RUB от Rapira API (для обратного расчета)
+        - RUB → USD: получаем USD/RUB от APILayer
+        - RUB → EUR: получаем EUR/RUB от APILayer  
+        - USDT → RUB: получаем USDT/RUB от Rapira API
+        """
+        logger.info(f"Получение базового курса для пары {source_currency.value} → {target_currency.value}")
         
-        else:
-            # Для USDT возвращаем базовый курс
-            return await ExchangeCalculator.get_base_rate()
+        try:
+            if source_currency == Currency.RUB and target_currency == Currency.USDT:
+                # RUB → USDT: получаем USDT/RUB для обратного расчета
+                return await ExchangeCalculator.get_usdt_rub_rate()
+                
+            elif source_currency == Currency.RUB and target_currency == Currency.USD:
+                # RUB → USD: получаем USD/RUB
+                return await ExchangeCalculator.get_usd_rub_rate()
+                
+            elif source_currency == Currency.RUB and target_currency == Currency.EUR:
+                # RUB → EUR: получаем EUR/RUB
+                return await ExchangeCalculator.get_eur_rub_rate()
+                
+            elif source_currency == Currency.USDT and target_currency == Currency.RUB:
+                # USDT → RUB: получаем USDT/RUB
+                return await ExchangeCalculator.get_usdt_rub_rate()
+                
+            else:
+                raise ValueError(f"Неподдерживаемая валютная пара: {source_currency.value} → {target_currency.value}")
+                
+        except (RapiraAPIError, APILayerError) as e:
+            logger.error(f"❌ API ошибка для пары {source_currency.value}/{target_currency.value}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Неожиданная ошибка для пары {source_currency.value}/{target_currency.value}: {e}")
+            raise
     
     @staticmethod
     def calculate_final_rate(
@@ -124,12 +162,16 @@ class ExchangeCalculator:
         """
         margin_factor = margin_percent / Decimal('100')
         
+        logger.info(f"Расчет итогового курса: {source.value}→{target.value}, базовый={base_rate}, наценка={margin_percent}%")
+        
         if source == Currency.RUB:
-            # Клиент отдает рубли - увеличиваем курс (меньше получит криптовалюты)
+            # Клиент отдает рубли - увеличиваем курс (меньше получит криптовалюты/фиата)
             final_rate = base_rate * (Decimal('1') + margin_factor)
+            logger.info(f"RUB→{target.value}: {base_rate} × (1 + {margin_percent}/100) = {final_rate}")
         else:
             # Клиент отдает криптовалюту - уменьшаем курс (меньше получит рублей)
             final_rate = base_rate * (Decimal('1') - margin_factor)
+            logger.info(f"USDT→RUB: {base_rate} × (1 - {margin_percent}/100) = {final_rate}")
         
         return final_rate.quantize(Decimal('0.01'))
     
@@ -147,12 +189,16 @@ class ExchangeCalculator:
         - RUB → USDT/USD/EUR: результат = сумма_RUB / итоговый_курс
         - USDT → RUB: результат = сумма_USDT × итоговый_курс
         """
+        logger.info(f"Расчет результата: {amount} {source.value} → {target.value}, курс={final_rate}")
+        
         if source == Currency.RUB:
             # Делим сумму рублей на курс
             result = amount / final_rate
+            logger.info(f"RUB→{target.value}: {amount} / {final_rate} = {result}")
         else:
             # Умножаем сумму криптовалюты на курс
             result = amount * final_rate
+            logger.info(f"USDT→RUB: {amount} × {final_rate} = {result}")
         
         return result.quantize(Decimal('0.01'))
 
@@ -263,11 +309,19 @@ async def handle_target_currency_selection(callback_query: CallbackQuery, state:
     
     logger.info(f"Выбрана валютная пара: user_id={user_id}, {source_currency.value}→{target_currency.value}")
     
-    # Получаем базовый курс
-    if target_currency == Currency.RUB:
-        base_rate = await ExchangeCalculator.get_base_rate()
-    else:
-        base_rate = await ExchangeCalculator.get_cross_rate(target_currency)
+    # Получаем базовый курс от API
+    try:
+        base_rate = await ExchangeCalculator.get_base_rate_for_pair(source_currency, target_currency)
+        logger.info(f"✅ Получен базовый курс: {base_rate}")
+        
+    except (RapiraAPIError, APILayerError) as e:
+        logger.error(f"❌ Ошибка API: {e}")
+        await callback_query.answer(f"❌ Ошибка получения курса: {str(e)}", show_alert=True)
+        return
+    except Exception as e:
+        logger.error(f"❌ Неожиданная ошибка: {e}")
+        await callback_query.answer("❌ Внутренняя ошибка сервера", show_alert=True)
+        return
     
     # Сохраняем в состоянии
     await state.update_data(
