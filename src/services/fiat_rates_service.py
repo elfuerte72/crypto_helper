@@ -7,10 +7,12 @@ Fiat Rates Service for Crypto Helper Bot
 import asyncio
 import aiohttp
 import json
+import traceback
 from typing import Dict, Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
 import random
+import sys
 
 try:
     from ..config import config
@@ -29,6 +31,25 @@ logger = get_api_logger()
 
 
 # Используем APILayerError из models.py
+
+def log_detailed_error(error_type: str, error: Exception, context: str = ""):
+    """Детальное логирование ошибок с трейсбеком"""
+    error_details = {
+        'type': error_type,
+        'message': str(error),
+        'class': error.__class__.__name__,
+        'context': context,
+        'traceback': traceback.format_exc() if hasattr(error, '__traceback__') else 'No traceback available'
+    }
+    
+    logger.error(
+        f"🚨 {error_type} ERROR in {context}:\n"
+        f"   ├─ Type: {error_details['class']}\n"
+        f"   ├─ Message: {error_details['message']}\n"
+        f"   └─ Traceback:\n{error_details['traceback']}"
+    )
+    
+    return error_details
 
 
 class FiatRatesService:
@@ -123,16 +144,40 @@ class FiatRatesService:
         
         # Если нет API ключа, сразу используем fallback
         if not self.api_key:
-            logger.warning("API_LAYER_KEY not configured, using fallback data")
+            logger.warning(
+                "🔑 APILayer API key not configured\n"
+                f"   ├─ Service: {self.__class__.__name__}\n"
+                f"   ├─ Base currency: {base_currency}\n"
+                f"   ├─ Fallback available: {use_fallback}\n"
+                f"   └─ Action: Using fallback data"
+            )
             if use_fallback:
-                return await self._get_fallback_rates(base_currency)
+                fallback_rates = await self._get_fallback_rates(base_currency)
+                logger.info(f"✅ Fallback rates loaded for {base_currency}: {len(fallback_rates)} currencies")
+                return fallback_rates
             return None
         
         # Пытаемся получить реальные данные с улучшенной retry логикой
         max_retries = 3
         base_delay = 5  # Начальная задержка в секундах
         
+        logger.info(
+            f"🚀 Starting APILayer request for {base_currency}\n"
+            f"   ├─ Max retries: {max_retries}\n"
+            f"   ├─ Base delay: {base_delay}s\n"
+            f"   ├─ Supported currencies: {len(self.supported_currencies)}\n"
+            f"   └─ Fallback enabled: {use_fallback}"
+        )
+        
         for attempt in range(max_retries):
+            attempt_start_time = asyncio.get_event_loop().time()
+            logger.info(
+                f"🔄 APILayer attempt {attempt + 1}/{max_retries} for {base_currency}\n"
+                f"   ├─ URL: {self.base_url}/latest\n"
+                f"   ├─ Currencies requested: {len(self.supported_currencies)}\n"
+                f"   └─ Timeout: {self.timeout.total}s"
+            )
+            
             try:
                 await self._rate_limit()
                 
@@ -143,31 +188,81 @@ class FiatRatesService:
                     'symbols': ','.join(self.supported_currencies)
                 }
                 
+                logger.debug(f"🔗 Making HTTP request to APILayer: {url} with params: {params}")
+                
                 async with self.session.get(url, params=params) as response:
+                    response_time = (asyncio.get_event_loop().time() - attempt_start_time) * 1000
+                    
                     if response.status == 200:
-                        data = await response.json()
-                        
-                        if data.get('success') and 'rates' in data:
-                            rates = data['rates']
-                            logger.debug(f"Got {len(rates)} rates from {base_currency} via APILayer")
+                        try:
+                            data = await response.json()
+                            logger.debug(f"📨 APILayer response received in {response_time:.2f}ms: {len(str(data))} chars")
                             
-                            # Кэшируем успешный результат
-                            await self._cache_rates(base_currency, rates)
-                            return rates
-                        else:
-                            error_msg = data.get('error', {}).get('info', 'Unknown error')
-                            logger.error(f"APILayer API error: {error_msg}")
-                            if attempt == max_retries - 1:  # Последняя попытка
-                                if use_fallback:
-                                    logger.info(f"Using fallback data for {base_currency} after API error")
-                                    return await self._get_fallback_rates(base_currency)
-                                raise APILayerError(f"APILayer error: {error_msg}")
+                            if data.get('success') and 'rates' in data:
+                                rates = data['rates']
+                                logger.info(
+                                    f"✅ APILayer SUCCESS for {base_currency}\n"
+                                    f"   ├─ Response time: {response_time:.2f}ms\n"
+                                    f"   ├─ Rates received: {len(rates)}\n"
+                                    f"   ├─ Attempt: {attempt + 1}/{max_retries}\n"
+                                    f"   └─ Caching: enabled"
+                                )
+                                
+                                # Кэшируем успешный результат
+                                await self._cache_rates(base_currency, rates)
+                                return rates
+                            else:
+                                error_data = data.get('error', {})
+                                error_msg = error_data.get('info', 'Unknown error')
+                                error_code = error_data.get('code', 'unknown')
+                                
+                                logger.error(
+                                    f"❌ APILayer API ERROR for {base_currency}\n"
+                                    f"   ├─ Error code: {error_code}\n"
+                                    f"   ├─ Error message: {error_msg}\n"
+                                    f"   ├─ Full response: {json.dumps(data, indent=2)}\n"
+                                    f"   ├─ Response time: {response_time:.2f}ms\n"
+                                    f"   └─ Attempt: {attempt + 1}/{max_retries}"
+                                )
+                                
+                                if attempt == max_retries - 1:  # Последняя попытка
+                                    if use_fallback:
+                                        logger.info(f"🔄 Using fallback data for {base_currency} after API error")
+                                        fallback_rates = await self._get_fallback_rates(base_currency)
+                                        logger.info(f"✅ Fallback rates loaded: {len(fallback_rates)} currencies")
+                                        return fallback_rates
+                                    raise APILayerError(f"APILayer error: {error_msg} (code: {error_code})")
+                        except json.JSONDecodeError as e:
+                            log_detailed_error("JSON_DECODE", e, f"APILayer response parsing for {base_currency}")
+                            response_text = await response.text()
+                            logger.error(f"🚨 Invalid JSON response from APILayer: {response_text[:500]}...")
+                            if attempt == max_retries - 1 and use_fallback:
+                                return await self._get_fallback_rates(base_currency)
                     
                     elif response.status == 401:
-                        logger.error("APILayer authentication failed - check API key")
+                        auth_error_details = {
+                            'status': response.status,
+                            'headers': dict(response.headers),
+                            'url': str(response.url),
+                            'api_key_present': bool(self.api_key),
+                            'api_key_length': len(self.api_key) if self.api_key else 0
+                        }
+                        
+                        logger.error(
+                            f"🔒 APILayer AUTHENTICATION FAILED for {base_currency}\n"
+                            f"   ├─ Status: {auth_error_details['status']}\n"
+                            f"   ├─ API key present: {auth_error_details['api_key_present']}\n"
+                            f"   ├─ API key length: {auth_error_details['api_key_length']}\n"
+                            f"   ├─ URL: {auth_error_details['url']}\n"
+                            f"   ├─ Response time: {response_time:.2f}ms\n"
+                            f"   └─ Attempt: {attempt + 1}/{max_retries}"
+                        )
+                        
                         if use_fallback:
-                            logger.info(f"Using fallback data for {base_currency} after auth error")
-                            return await self._get_fallback_rates(base_currency)
+                            logger.info(f"🔄 Using fallback data for {base_currency} after auth error")
+                            fallback_rates = await self._get_fallback_rates(base_currency)
+                            logger.info(f"✅ Fallback rates loaded: {len(fallback_rates)} currencies")
+                            return fallback_rates
                         raise APILayerError("Invalid API key", response.status)
                     
                     elif response.status == 429:
@@ -176,46 +271,175 @@ class FiatRatesService:
                         exponential_delay = base_delay * (2 ** attempt)
                         actual_delay = min(retry_after, exponential_delay, 30)  # Максимум 30 секунд
                         
-                        logger.warning(f"APILayer rate limit exceeded, attempt {attempt + 1}/{max_retries}")
+                        rate_limit_details = {
+                            'status': response.status,
+                            'retry_after_header': response.headers.get('Retry-After'),
+                            'exponential_delay': exponential_delay,
+                            'actual_delay': actual_delay,
+                            'headers': dict(response.headers),
+                            'response_time': response_time
+                        }
+                        
+                        logger.warning(
+                            f"⏱️ APILayer RATE LIMIT for {base_currency}\n"
+                            f"   ├─ Status: {rate_limit_details['status']}\n"
+                            f"   ├─ Retry-After header: {rate_limit_details['retry_after_header']}s\n"
+                            f"   ├─ Exponential delay: {rate_limit_details['exponential_delay']:.1f}s\n"
+                            f"   ├─ Actual delay: {rate_limit_details['actual_delay']:.1f}s\n"
+                            f"   ├─ Response time: {rate_limit_details['response_time']:.2f}ms\n"
+                            f"   └─ Attempt: {attempt + 1}/{max_retries}"
+                        )
                         
                         if attempt < max_retries - 1:  # Не последняя попытка
-                            logger.info(f"Waiting {actual_delay}s before retry (exponential backoff)...")
+                            logger.info(
+                                f"⏳ Waiting {actual_delay}s before retry {attempt + 2}/{max_retries} "
+                                f"(exponential backoff for {base_currency})"
+                            )
                             await asyncio.sleep(actual_delay)
                             continue
                         else:
-                            logger.warning("Rate limit exceeded after all retries, using fallback data")
+                            logger.warning(
+                                f"⚠️ Rate limit exceeded after all {max_retries} retries for {base_currency}\n"
+                                f"   ├─ Total attempts: {max_retries}\n"
+                                f"   ├─ Final delay was: {actual_delay}s\n"
+                                f"   └─ Using fallback: {use_fallback}"
+                            )
                             if use_fallback:
-                                return await self._get_fallback_rates(base_currency)
+                                fallback_rates = await self._get_fallback_rates(base_currency)
+                                logger.info(f"✅ Fallback rates loaded: {len(fallback_rates)} currencies")
+                                return fallback_rates
                             raise APILayerError("Rate limit exceeded", response.status)
                     
                     else:
-                        error_text = await response.text()
-                        logger.error(f"APILayer API error {response.status}: {error_text}")
+                        try:
+                            error_text = await response.text()
+                        except Exception as e:
+                            error_text = f"Could not read response body: {str(e)}"
+                        
+                        http_error_details = {
+                            'status': response.status,
+                            'status_text': response.reason,
+                            'headers': dict(response.headers),
+                            'url': str(response.url),
+                            'response_time': response_time,
+                            'content_type': response.headers.get('content-type', 'unknown'),
+                            'content_length': response.headers.get('content-length', 'unknown'),
+                            'error_body': error_text[:1000] if error_text else 'No body'
+                        }
+                        
+                        logger.error(
+                            f"🚨 APILayer HTTP ERROR for {base_currency}\n"
+                            f"   ├─ Status: {http_error_details['status']} {http_error_details['status_text']}\n"
+                            f"   ├─ Content-Type: {http_error_details['content_type']}\n"
+                            f"   ├─ Content-Length: {http_error_details['content_length']}\n"
+                            f"   ├─ Response time: {http_error_details['response_time']:.2f}ms\n"
+                            f"   ├─ URL: {http_error_details['url']}\n"
+                            f"   ├─ Attempt: {attempt + 1}/{max_retries}\n"
+                            f"   └─ Error body: {http_error_details['error_body']}"
+                        )
+                        
                         if attempt == max_retries - 1:
                             if use_fallback:
-                                logger.info(f"Using fallback data for {base_currency} after HTTP error {response.status}")
-                                return await self._get_fallback_rates(base_currency)
+                                logger.info(
+                                    f"🔄 Using fallback data for {base_currency} after HTTP {response.status} error\n"
+                                    f"   └─ Final attempt failed after {response_time:.2f}ms"
+                                )
+                                fallback_rates = await self._get_fallback_rates(base_currency)
+                                logger.info(f"✅ Fallback rates loaded: {len(fallback_rates)} currencies")
+                                return fallback_rates
                             raise APILayerError(f"API error {response.status}: {error_text}", response.status)
                         
                         # Добавляем задержку перед повторной попыткой
-                        await asyncio.sleep(base_delay * (attempt + 1))
+                        retry_delay = base_delay * (attempt + 1)
+                        logger.info(f"⏳ Waiting {retry_delay}s before retry after HTTP {response.status}")
+                        await asyncio.sleep(retry_delay)
                         
             except aiohttp.ClientError as e:
-                logger.error(f"Network error getting fiat rates from {base_currency}: {e}")
+                network_error_details = log_detailed_error(
+                    "NETWORK", e, f"APILayer request for {base_currency} (attempt {attempt + 1}/{max_retries})"
+                )
+                
+                logger.error(
+                    f"🌐 NETWORK ERROR for {base_currency}\n"
+                    f"   ├─ Error type: {network_error_details['class']}\n"
+                    f"   ├─ Error message: {network_error_details['message']}\n"
+                    f"   ├─ Attempt: {attempt + 1}/{max_retries}\n"
+                    f"   ├─ Retry available: {attempt < max_retries - 1}\n"
+                    f"   └─ Fallback available: {use_fallback}"
+                )
+                
                 if attempt == max_retries - 1:
                     if use_fallback:
-                        logger.info(f"Using fallback data for {base_currency} after network error")
-                        return await self._get_fallback_rates(base_currency)
+                        logger.info(
+                            f"🔄 Using fallback data for {base_currency} after network error\n"
+                            f"   ├─ All {max_retries} attempts failed\n"
+                            f"   └─ Final error: {network_error_details['class']}"
+                        )
+                        fallback_rates = await self._get_fallback_rates(base_currency)
+                        logger.info(f"✅ Fallback rates loaded: {len(fallback_rates)} currencies")
+                        return fallback_rates
                     raise APILayerError(f"Network error: {str(e)}")
                 
                 # Добавляем задержку перед повторной попыткой
-                await asyncio.sleep(base_delay * (attempt + 1))
+                retry_delay = base_delay * (attempt + 1)
+                logger.info(
+                    f"⏳ Network retry delay for {base_currency}: {retry_delay}s \n"
+                    f"   └─ Next attempt: {attempt + 2}/{max_retries}"
+                )
+                await asyncio.sleep(retry_delay)
+            
+            except Exception as e:
+                # Обработка неожиданных ошибок
+                unexpected_error_details = log_detailed_error(
+                    "UNEXPECTED", e, f"APILayer request for {base_currency} (attempt {attempt + 1}/{max_retries})"
+                )
+                
+                logger.critical(
+                    f"🚨 UNEXPECTED ERROR for {base_currency}\n"
+                    f"   ├─ Error type: {unexpected_error_details['class']}\n"
+                    f"   ├─ Error message: {unexpected_error_details['message']}\n"
+                    f"   ├─ Attempt: {attempt + 1}/{max_retries}\n"
+                    f"   ├─ Python version: {sys.version}\n"
+                    f"   └─ Module: {__name__}"
+                )
+                
+                if attempt == max_retries - 1:
+                    if use_fallback:
+                        logger.warning(
+                            f"🔄 Using fallback after unexpected error for {base_currency}\n"
+                            f"   └─ This should be investigated: {unexpected_error_details['class']}"
+                        )
+                        fallback_rates = await self._get_fallback_rates(base_currency)
+                        logger.info(f"✅ Fallback rates loaded: {len(fallback_rates)} currencies")
+                        return fallback_rates
+                    raise APILayerError(f"Unexpected error: {str(e)}")
+                
+                # Короткая задержка перед повтором при неожиданных ошибках
+                await asyncio.sleep(2)
         
         # Если все попытки неудачны, используем fallback
         if use_fallback:
-            logger.warning(f"All attempts failed, using fallback data for {base_currency}")
-            return await self._get_fallback_rates(base_currency)
+            logger.warning(
+                f"⚠️ ALL ATTEMPTS FAILED for {base_currency}\n"
+                f"   ├─ Total attempts: {max_retries}\n"
+                f"   ├─ Service: APILayer\n"
+                f"   ├─ Base delay: {base_delay}s\n"
+                f"   └─ Falling back to static rates"
+            )
+            fallback_rates = await self._get_fallback_rates(base_currency)
+            logger.info(
+                f"✅ FALLBACK SUCCESS for {base_currency}\n"
+                f"   ├─ Rates loaded: {len(fallback_rates)}\n"
+                f"   └─ Source: Static fallback data"
+            )
+            return fallback_rates
         
+        logger.critical(
+            f"🚨 FINAL FAILURE for {base_currency}\n"
+            f"   ├─ All {max_retries} attempts failed\n"
+            f"   ├─ Fallback disabled\n"
+            f"   └─ No rates available"
+        )
         raise APILayerError("All retry attempts failed")
     
     async def get_fiat_rate(self, from_currency: str, to_currency: str, use_fallback: bool = True) -> Optional[float]:
@@ -444,7 +668,12 @@ class FiatRatesService:
         Получить fallback курсы при недоступности APILayer
         Используем реалистичные курсы на основе исторических данных
         """
-        logger.info(f"Using fallback rates for {base_currency}")
+        logger.info(
+            f"🗄 LOADING FALLBACK RATES for {base_currency}\n"
+            f"   ├─ Source: Static historical data\n"
+            f"   ├─ Supported currencies: {len(self.supported_currencies)}\n"
+            f"   └─ Reason: APILayer unavailable"
+        )
         
         # Реалистичные курсы на основе исторических данных
         fallback_rates = {
