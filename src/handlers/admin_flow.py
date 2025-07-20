@@ -5,6 +5,7 @@ Admin Flow для Crypto Helper Bot (Новая логика)
 ТОЛЬКО РЕАЛЬНЫЕ API - БЕЗ ЗАГЛУШЕК!
 """
 
+import asyncio
 from decimal import Decimal
 from typing import Dict, Any, Optional
 
@@ -22,7 +23,11 @@ from .keyboards import (
     create_amount_input_keyboard,
     create_result_keyboard
 )
-from .formatters import MessageFormatter
+from .formatters import (
+    MessageFormatter, 
+    SafeMessageEditor, 
+    LoadingMessageFormatter
+)
 from .validators import ExchangeValidator, ValidationResult
 
 # Импорт API сервисов - ТОЛЬКО РЕАЛЬНЫЕ API
@@ -31,6 +36,7 @@ try:
     from ..services.fiat_rates_service import fiat_rates_service
     from ..services.models import RapiraAPIError, APILayerError
     from ..utils.logger import get_bot_logger
+    from ..config import config
 except ImportError:
     # Для прямого запуска файлов
     import sys
@@ -40,10 +46,140 @@ except ImportError:
     from services.fiat_rates_service import fiat_rates_service
     from services.models import RapiraAPIError, APILayerError
     from utils.logger import get_bot_logger
+    from config import config
 
 # Initialize components
 logger = get_bot_logger()
 admin_flow_router = Router()
+
+
+# === АСИНХРОННАЯ ОБРАБОТКА API ЗАПРОСОВ (TASK-CRYPTO-002) ===
+
+async def get_exchange_rate_with_loading(
+    message: Message,
+    source_currency: Currency,
+    target_currency: Currency
+) -> Optional[Decimal]:
+    """
+    Получить курс обмена с показом промежуточных сообщений загрузки
+    Решает проблему callback timeout показом прогресса
+    
+    Args:
+        message: Сообщение для обновления
+        source_currency: Исходная валюта
+        target_currency: Целевая валюта
+        
+    Returns:
+        Optional[Decimal]: Курс обмена или None при ошибке
+    """
+    # Определяем источник API
+    api_name = "Rapira API" if source_currency == Currency.USDT or target_currency == Currency.USDT else "APILayer"
+    
+    # Показываем сообщение загрузки
+    loading_text = LoadingMessageFormatter.format_api_loading_message(api_name)
+    edit_success = await SafeMessageEditor.safe_edit_message(
+        message, loading_text, parse_mode='HTML'
+    )
+    
+    if not edit_success:
+        logger.warning("Не удалось обновить сообщение загрузки")
+    
+    # Выполняем API запрос с меньшим таймаутом
+    try:
+        # Используем сокращенный таймаут для callback обработки
+        base_rate = await asyncio.wait_for(
+            ExchangeCalculator.get_base_rate_for_pair(source_currency, target_currency),
+            timeout=config.CALLBACK_API_TIMEOUT
+        )
+        logger.info(f"✅ Получен базовый курс: {base_rate}")
+        return base_rate
+        
+    except asyncio.TimeoutError:
+        logger.error(f"❌ API timeout ({config.CALLBACK_API_TIMEOUT}s) для пары {source_currency.value}/{target_currency.value}")
+        
+        # Показываем ошибку таймаута
+        timeout_text = (
+            f"⚠️ <b>Ошибка таймаута</b>\n\n"
+            f"❌ Сервер {api_name} не отвечает ({config.CALLBACK_API_TIMEOUT}с)\n\n"
+            f"🔄 Попробуйте еще раз через несколько секунд"
+        )
+        await SafeMessageEditor.safe_edit_message(
+            message, timeout_text, parse_mode='HTML'
+        )
+        return None
+        
+    except (RapiraAPIError, APILayerError) as e:
+        logger.error(f"❌ Ошибка API: {e}")
+        
+        # Показываем ошибку API
+        api_error_text = (
+            f"❌ <b>Ошибка API</b>\n\n"
+            f"⚠️ {str(e)}\n\n"
+            f"🔄 Попробуйте еще раз через несколько секунд"
+        )
+        await SafeMessageEditor.safe_edit_message(
+            message, api_error_text, parse_mode='HTML'
+        )
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Неожиданная ошибка: {e}")
+        
+        # Показываем общую ошибку
+        error_text = (
+            "❌ <b>Внутренняя ошибка</b>\n\n"
+            "⚠️ Произошла неожиданная ошибка\n\n"
+            "🔄 Попробуйте еще раз"
+        )
+        await SafeMessageEditor.safe_edit_message(
+            message, error_text, parse_mode='HTML'
+        )
+        return None
+
+
+async def safe_callback_answer_and_edit(
+    callback_query: CallbackQuery,
+    new_text: str,
+    reply_markup=None,
+    answer_text: str = "",
+    show_alert: bool = False
+) -> bool:
+    """
+    Безопасно ответить на callback и отредактировать сообщение
+    Комбинирует ответ на callback и редактирование сообщения
+    
+    Args:
+        callback_query: Callback query
+        new_text: Новый текст сообщения
+        reply_markup: Новая клавиатура
+        answer_text: Текст ответа callback
+        show_alert: Показать алерт
+        
+    Returns:
+        bool: True если все операции успешны
+    """
+    # Отвечаем на callback параллельно
+    answer_task = asyncio.create_task(
+        SafeMessageEditor.safe_answer_callback(
+            callback_query, answer_text, show_alert
+        )
+    )
+    
+    # Редактируем сообщение
+    edit_success = await SafeMessageEditor.safe_edit_message(
+        callback_query.message, new_text, reply_markup, parse_mode='HTML'
+    )
+    
+    # Ожидаем завершение ответа callback
+    answer_success = await answer_task
+    
+    if not answer_success:
+        logger.warning("Не удалось ответить на callback query")
+    
+    if not edit_success:
+        logger.warning("Не удалось отредактировать сообщение")
+    
+    return edit_success and answer_success
 
 
 class ExchangeCalculator:
@@ -386,19 +522,23 @@ async def start_exchange_flow(message: Message, state: FSMContext):
     F.data.startswith('source_')
 )
 async def handle_source_currency_selection(callback_query: CallbackQuery, state: FSMContext):
-    """Обработка выбора исходной валюты"""
+    """Обработка выбора исходной валюты - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     user_id = callback_query.from_user.id
     
     # Валидируем callback данные
     validation = ExchangeValidator.validate_callback_data(callback_query.data, 'source_')
     if not validation.is_valid:
-        await callback_query.answer("❌ Ошибка выбора валюты", show_alert=True)
+        await SafeMessageEditor.safe_answer_callback(
+            callback_query, "❌ Ошибка выбора валюты", show_alert=True
+        )
         return
     
     try:
         source_currency = Currency(validation.value)
     except ValueError:
-        await callback_query.answer("❌ Неизвестная валюта", show_alert=True)
+        await SafeMessageEditor.safe_answer_callback(
+            callback_query, "❌ Неизвестная валюта", show_alert=True
+        )
         return
     
     logger.info(f"Выбрана исходная валюта: user_id={user_id}, source={source_currency.value}")
@@ -413,13 +553,13 @@ async def handle_source_currency_selection(callback_query: CallbackQuery, state:
     message_text = MessageFormatter.format_source_selected_message(source_currency)
     keyboard = create_target_currency_keyboard(source_currency)
     
-    await callback_query.message.edit_text(
+    # Используем безопасное редактирование с ответом на callback
+    await safe_callback_answer_and_edit(
+        callback_query,
         message_text,
-        reply_markup=keyboard,
-        parse_mode='HTML'
+        keyboard,
+        answer_text="✅ Исходная валюта выбрана"
     )
-    
-    await callback_query.answer()
 
 
 # === ОБРАБОТЧИКИ ВЫБОРА ЦЕЛЕВОЙ ВАЛЮТЫ ===
@@ -429,19 +569,30 @@ async def handle_source_currency_selection(callback_query: CallbackQuery, state:
     F.data.startswith('target_')
 )
 async def handle_target_currency_selection(callback_query: CallbackQuery, state: FSMContext):
-    """Обработка выбора целевой валюты"""
+    """Обработка выбора целевой валюты - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     user_id = callback_query.from_user.id
+    
+    # Мгновенно отвечаем на callback для избежания timeout
+    await SafeMessageEditor.safe_answer_callback(
+        callback_query, "⏳ Проверка валютной пары..."
+    )
     
     # Валидируем callback данные
     validation = ExchangeValidator.validate_callback_data(callback_query.data, 'target_')
     if not validation.is_valid:
-        await callback_query.answer("❌ Ошибка выбора валюты", show_alert=True)
+        error_text = "❌ <b>Ошибка выбора валюты</b>\n\nПопробуйте еще раз."
+        await SafeMessageEditor.safe_edit_message(
+            callback_query.message, error_text, parse_mode='HTML'
+        )
         return
     
     try:
         target_currency = Currency(validation.value)
     except ValueError:
-        await callback_query.answer("❌ Неизвестная валюта", show_alert=True)
+        error_text = "❌ <b>Неизвестная валюта</b>\n\nПопробуйте еще раз."
+        await SafeMessageEditor.safe_edit_message(
+            callback_query.message, error_text, parse_mode='HTML'
+        )
         return
     
     # Получаем исходную валюту из состояния
@@ -451,24 +602,24 @@ async def handle_target_currency_selection(callback_query: CallbackQuery, state:
     # Валидируем валютную пару
     pair_validation = ExchangeValidator.validate_currency_pair(source_currency, target_currency)
     if not pair_validation.is_valid:
-        await callback_query.answer(f"❌ {pair_validation.error}", show_alert=True)
+        error_text = f"❌ <b>Недопустимая пара</b>\n\n{pair_validation.error}"
+        await SafeMessageEditor.safe_edit_message(
+            callback_query.message, error_text, parse_mode='HTML'
+        )
         return
     
     logger.info(f"Выбрана валютная пара: user_id={user_id}, {source_currency.value}→{target_currency.value}")
     
-    # Получаем базовый курс от API
-    try:
-        base_rate = await ExchangeCalculator.get_base_rate_for_pair(source_currency, target_currency)
-        logger.info(f"✅ Получен базовый курс: {base_rate}")
-        
-    except (RapiraAPIError, APILayerError) as e:
-        logger.error(f"❌ Ошибка API: {e}")
-        await callback_query.answer(f"❌ Ошибка получения курса: {str(e)}", show_alert=True)
+    # Получаем базовый курс с показом прогресса
+    base_rate = await get_exchange_rate_with_loading(
+        callback_query.message, source_currency, target_currency
+    )
+    
+    if base_rate is None:
+        # Ошибка уже отображена в get_exchange_rate_with_loading
         return
-    except Exception as e:
-        logger.error(f"❌ Неожиданная ошибка: {e}")
-        await callback_query.answer("❌ Внутренняя ошибка сервера", show_alert=True)
-        return
+    
+    logger.info(f"✅ Получен базовый курс: {base_rate}")
     
     # Сохраняем в состоянии
     await state.update_data(
@@ -485,13 +636,13 @@ async def handle_target_currency_selection(callback_query: CallbackQuery, state:
     )
     keyboard = create_margin_input_keyboard()
     
-    await callback_query.message.edit_text(
+    # Безопасно редактируем сообщение
+    await SafeMessageEditor.safe_edit_message(
+        callback_query.message,
         message_text,
-        reply_markup=keyboard,
+        keyboard,
         parse_mode='HTML'
     )
-    
-    await callback_query.answer()
 
 
 # === ОБРАБОТЧИКИ ВВОДА НАЦЕНКИ ===
@@ -669,21 +820,23 @@ async def process_amount_input(
 
 @admin_flow_router.callback_query(F.data == 'back_to_source')
 async def handle_back_to_source(callback_query: CallbackQuery, state: FSMContext):
-    """Возврат к выбору исходной валюты"""
+    """Возврат к выбору исходной валюты - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     await state.set_state(ExchangeFlow.WAITING_FOR_SOURCE_CURRENCY)
     
     welcome_text = MessageFormatter.format_welcome_message()
     keyboard = create_source_currency_keyboard()
     
-    await callback_query.message.edit_text(
-        welcome_text, reply_markup=keyboard, parse_mode='HTML'
+    await safe_callback_answer_and_edit(
+        callback_query,
+        welcome_text, 
+        keyboard,
+        answer_text="⬅️ Возврат к выбору валюты"
     )
-    await callback_query.answer()
 
 
 @admin_flow_router.callback_query(F.data == 'back_to_target')
 async def handle_back_to_target(callback_query: CallbackQuery, state: FSMContext):
-    """Возврат к выбору целевой валюты"""
+    """Возврат к выбору целевой валюты - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     data = await state.get_data()
     source_currency = Currency(data['source_currency'])
     
@@ -692,15 +845,17 @@ async def handle_back_to_target(callback_query: CallbackQuery, state: FSMContext
     message_text = MessageFormatter.format_source_selected_message(source_currency)
     keyboard = create_target_currency_keyboard(source_currency)
     
-    await callback_query.message.edit_text(
-        message_text, reply_markup=keyboard, parse_mode='HTML'
+    await safe_callback_answer_and_edit(
+        callback_query,
+        message_text, 
+        keyboard,
+        answer_text="⬅️ Возврат к выбору целевой валюты"
     )
-    await callback_query.answer()
 
 
 @admin_flow_router.callback_query(F.data == 'back_to_margin')
 async def handle_back_to_margin(callback_query: CallbackQuery, state: FSMContext):
-    """Возврат к вводу наценки"""
+    """Возврат к вводу наценки - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     data = await state.get_data()
     source_currency = Currency(data['source_currency'])
     target_currency = Currency(data['target_currency'])
@@ -713,30 +868,34 @@ async def handle_back_to_margin(callback_query: CallbackQuery, state: FSMContext
     )
     keyboard = create_margin_input_keyboard()
     
-    await callback_query.message.edit_text(
-        message_text, reply_markup=keyboard, parse_mode='HTML'
+    await safe_callback_answer_and_edit(
+        callback_query,
+        message_text, 
+        keyboard,
+        answer_text="⬅️ Возврат к вводу наценки"
     )
-    await callback_query.answer()
 
 
 @admin_flow_router.callback_query(F.data == 'new_exchange')
 async def handle_new_exchange(callback_query: CallbackQuery, state: FSMContext):
-    """Начать новую сделку"""
+    """Начать новую сделку - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     await state.clear()
     await state.set_state(ExchangeFlow.WAITING_FOR_SOURCE_CURRENCY)
     
     welcome_text = MessageFormatter.format_welcome_message()
     keyboard = create_source_currency_keyboard()
     
-    await callback_query.message.edit_text(
-        welcome_text, reply_markup=keyboard, parse_mode='HTML'
+    await safe_callback_answer_and_edit(
+        callback_query,
+        welcome_text, 
+        keyboard,
+        answer_text="🔄 Начинаем новую сделку"
     )
-    await callback_query.answer("🔄 Начинаем новую сделку")
 
 
 @admin_flow_router.callback_query(F.data == 'main_menu')
 async def handle_main_menu(callback_query: CallbackQuery, state: FSMContext):
-    """Возврат в главное меню"""
+    """Возврат в главное меню - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     await state.clear()
     
     menu_text = (
@@ -744,28 +903,38 @@ async def handle_main_menu(callback_query: CallbackQuery, state: FSMContext):
         "Используйте команду /admin_bot для расчета курса обмена"
     )
     
-    await callback_query.message.edit_text(menu_text, parse_mode='HTML')
-    await callback_query.answer()
+    await safe_callback_answer_and_edit(
+        callback_query,
+        menu_text,
+        reply_markup=None,
+        answer_text="📋 Переход в главное меню"
+    )
 
 
 @admin_flow_router.callback_query(F.data == 'cancel_exchange')
 async def handle_cancel_exchange(callback_query: CallbackQuery, state: FSMContext):
-    """Отмена операции обмена"""
+    """Отмена операции обмена - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     await state.clear()
     
     cancel_text = MessageFormatter.format_cancel_message("Обмен валют")
     
-    await callback_query.message.edit_text(cancel_text, parse_mode='HTML')
-    await callback_query.answer("❌ Операция отменена")
+    await safe_callback_answer_and_edit(
+        callback_query,
+        cancel_text,
+        reply_markup=None,
+        answer_text="❌ Операция отменена"
+    )
 
 
 # === ОБРАБОТЧИКИ ОШИБОК ===
 
 @admin_flow_router.callback_query()
 async def handle_unknown_callback(callback_query: CallbackQuery):
-    """Обработка неизвестных callback'ов"""
+    """Обработка неизвестных callback'ов - ОБНОВЛЕНО ДЛЯ TASK-CRYPTO-002"""
     logger.warning(f"Неизвестный callback: {callback_query.data}")
-    await callback_query.answer("❌ Неизвестная команда", show_alert=True)
+    await SafeMessageEditor.safe_answer_callback(
+        callback_query, "❌ Неизвестная команда", show_alert=True
+    )
 
 
 @admin_flow_router.message()

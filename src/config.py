@@ -39,6 +39,11 @@ class Config:
     API_TIMEOUT: int = int(os.getenv('API_TIMEOUT', '30'))
     API_RETRY_COUNT: int = int(os.getenv('API_RETRY_COUNT', '3'))
     
+    # Telegram Bot Settings - новые параметры для callback timeout fix
+    CALLBACK_API_TIMEOUT: int = int(os.getenv('CALLBACK_API_TIMEOUT', '3'))  # Быстрые API запросы для callback
+    CALLBACK_ANSWER_TIMEOUT: int = int(os.getenv('CALLBACK_ANSWER_TIMEOUT', '2'))  # Время на ответ callback
+    MAX_MESSAGE_EDIT_ATTEMPTS: int = int(os.getenv('MAX_MESSAGE_EDIT_ATTEMPTS', '3'))  # Попытки редактирования
+    
     # Development Settings
     USE_MOCK_DATA: bool = os.getenv('USE_MOCK_DATA', 'false').lower() == 'true'
     
