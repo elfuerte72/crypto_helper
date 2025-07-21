@@ -488,9 +488,9 @@ class MockAPIService:
 # IMPLEMENTED в src/config.py - Environment-driven configuration
 class Config:
     # Production vs Development settings
-    BOT_TOKEN = os.getenv('LOCAL_BOT_TOKEN') or os.getenv('BOT_TOKEN')
+    BOT_TOKEN = os.getenv('BOT_TOKEN')
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-    IS_LOCAL_DEVELOPMENT = bool(os.getenv('LOCAL_BOT_TOKEN'))
+    IS_LOCAL_DEVELOPMENT = os.getenv('ENVIRONMENT', 'production') == 'development'
     
     # Business rules configuration
     MIN_MARGIN_PERCENT = 0.1
