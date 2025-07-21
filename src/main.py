@@ -24,6 +24,9 @@ from handlers.admin_flow import admin_flow_router  # Новый флоу
 from handlers.admin_handlers import admin_router
 from handlers.bot_handlers import margin_router
 
+# Import cache managers - РЕШЕНИЕ MEMORY LEAK
+from services.cache_manager import start_all_caches, stop_all_caches, get_all_cache_stats
+
 # Initialize logger
 logger = get_bot_logger()
 
@@ -86,6 +89,19 @@ async def main():
     logger.info(f"🔗 Rapira API URL: {config.RAPIRA_API_URL}")
     logger.info(f"📋 Поддерживаемые валюты: {config.SUPPORTED_SOURCE_CURRENCIES}")
     
+    # Инициализация кэш-менеджеров - РЕШЕНИЕ MEMORY LEAK
+    logger.info("💾 Инициализация кэш-менеджеров...")
+    await start_all_caches()
+    
+    # Логируем начальную статистику кэша
+    cache_stats = get_all_cache_stats()
+    logger.info(
+        f"📈 Кэш-менеджеры запущены:\n"
+        f"   ├─ Rates cache: {cache_stats['rates_cache']['max_size']} max entries, {cache_stats['rates_cache']['current_size']} used\n"
+        f"   ├─ API cache: {cache_stats['api_cache']['max_size']} max entries, {cache_stats['api_cache']['current_size']} used\n"
+        f"   └─ Total memory: {cache_stats['total_memory_mb']:.2f}MB"
+    )
+    
     try:
         # Start polling
         logger.info("🔄 Начало polling...")
@@ -94,6 +110,19 @@ async def main():
         logger.error(f"❌ Ошибка запуска бота: {e}")
         raise
     finally:
+        # Остановка кэш-менеджеров - ОБЯЗАТЕЛЬНО для предотвращения memory leak
+        logger.info("📋 Остановка кэш-менеджеров...")
+        await stop_all_caches()
+        
+        # Логируем финальную статистику
+        final_stats = get_all_cache_stats()
+        logger.info(
+            f"📋 Финальная статистика кэшей:\n"
+            f"   ├─ Всего hits: {sum(cache['hits'] for cache in final_stats.values() if isinstance(cache, dict) and 'hits' in cache)}\n"
+            f"   ├─ Всего cleanups: {sum(cache.get('ttl_cleanups', 0) for cache in final_stats.values() if isinstance(cache, dict))}\n"
+            f"   └─ Максимальная память: {final_stats['total_memory_mb']:.2f}MB"
+        )
+        
         await bot.session.close()
         logger.info("🛑 Бот остановлен")
 

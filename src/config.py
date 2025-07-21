@@ -50,6 +50,13 @@ class Config:
     # Environment Detection
     IS_LOCAL_DEVELOPMENT: bool = bool(os.getenv('LOCAL_BOT_TOKEN'))
     
+    # Cache Configuration - РЕШЕНИЕ MEMORY LEAK
+    CACHE_MAX_SIZE: int = int(os.getenv('CACHE_MAX_SIZE', '100'))  # Максимум записей в кэше
+    CACHE_DEFAULT_TTL: int = int(os.getenv('CACHE_DEFAULT_TTL', '300'))  # 5 минут TTL
+    CACHE_CLEANUP_INTERVAL: int = int(os.getenv('CACHE_CLEANUP_INTERVAL', '60'))  # Очистка каждую минуту
+    RATES_CACHE_TTL: int = int(os.getenv('RATES_CACHE_TTL', '300'))  # TTL для курсов валют
+    API_CACHE_TTL: int = int(os.getenv('API_CACHE_TTL', '600'))  # TTL для API ответов
+    
     # New Exchange Flow Configuration (Новая логика пошагового обмена)
     # Поддерживаемые исходные валюты (что отдает клиент)
     SUPPORTED_SOURCE_CURRENCIES = ['RUB', 'USDT']

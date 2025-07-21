@@ -18,6 +18,7 @@ try:
     from ..config import config
     from ..utils.logger import get_api_logger
     from .models import ExchangeRate, APILayerError
+    from .cache_manager import rates_cache
 except ImportError:
     # Handle direct execution
     import sys
@@ -26,6 +27,7 @@ except ImportError:
     from config import config
     from utils.logger import get_api_logger
     from services.models import ExchangeRate, APILayerError
+    from services.cache_manager import rates_cache
 
 logger = get_api_logger()
 
@@ -629,38 +631,34 @@ class FiatRatesService:
         logger.info(f"APILayer health check completed: {health_data['status']} ({health_data.get('response_time_ms', 'N/A')}ms)")
         return health_data
     
-    # Кэширование и fallback методы
+    # Кэширование и fallback методы - ИСПРАВЛЕН MEMORY LEAK
     async def _get_cached_rates(self, base_currency: str) -> Optional[Dict[str, float]]:
         """
-        Получить курсы из кэша (простая реализация в памяти)
-        В продакшене можно использовать Redis или другое хранилище
+        Получить курсы из унифицированного кэша с TTL cleanup
+        РЕШЕНИЕ: Используем UnifiedCacheManager вместо бесконечно растущего self._cache
         """
-        # Простое кэширование в памяти с временем жизни 5 минут
-        if not hasattr(self, '_cache'):
-            self._cache = {}
-        
         cache_key = f"rates_{base_currency}"
-        if cache_key in self._cache:
-            cached_data, timestamp = self._cache[cache_key]
-            # Проверяем, не устарел ли кэш (5 минут)
-            if (datetime.now().timestamp() - timestamp) < 300:
-                return cached_data
-            else:
-                # Удаляем устаревший кэш
-                del self._cache[cache_key]
+        cached_rates = rates_cache.get(cache_key)
         
+        if cached_rates:
+            logger.debug(f"✅ Cache HIT for {base_currency} from UnifiedCacheManager")
+            return cached_rates
+        
+        logger.debug(f"❌ Cache MISS for {base_currency}")
         return None
     
     async def _cache_rates(self, base_currency: str, rates: Dict[str, float]):
         """
-        Сохранить курсы в кэш
+        Сохранить курсы в унифицированный кэш с автоматической очисткой
+        РЕШЕНИЕ: Замена старого self._cache на rates_cache с ограничением размера
         """
-        if not hasattr(self, '_cache'):
-            self._cache = {}
-        
         cache_key = f"rates_{base_currency}"
-        self._cache[cache_key] = (rates, datetime.now().timestamp())
-        logger.debug(f"Cached rates for {base_currency}")
+        rates_cache.set(cache_key, rates, ttl=config.RATES_CACHE_TTL)
+        
+        logger.debug(
+            f"💾 Cached rates for {base_currency} (TTL: {config.RATES_CACHE_TTL}s, "
+            f"Cache size: {rates_cache.get_stats()['current_size']}/{rates_cache.max_size})"
+        )
     
     async def _get_fallback_rates(self, base_currency: str) -> Dict[str, float]:
         """
@@ -754,6 +752,67 @@ class FiatRatesService:
         # Возвращаем примерный курс если ничего не найдено
         logger.warning(f"No fallback rate found for {from_currency}/{to_currency}, using default")
         return 1.0
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Получить статистику кэша для мониторинга MEMORY LEAK
+        РЕШЕНИЕ: Мониторинг использования памяти унифицированным кэшем
+        
+        Returns:
+            Статистика кэша включая использование памяти
+        """
+        cache_stats = rates_cache.get_stats()
+        
+        return {
+            'service': 'fiat_rates_cache',
+            'timestamp': datetime.now().isoformat(),
+            'cache_manager': 'UnifiedCacheManager',
+            'current_entries': cache_stats['current_size'],
+            'max_entries': cache_stats['max_size'],
+            'utilization_percent': cache_stats['utilization'] * 100,
+            'hit_ratio_percent': cache_stats['hit_ratio'] * 100,
+            'total_hits': cache_stats['hits'],
+            'total_misses': cache_stats['misses'],
+            'memory_usage_mb': cache_stats['memory_usage_mb'],
+            'memory_usage_bytes': cache_stats['memory_usage_bytes'],
+            'ttl_cleanups': cache_stats['ttl_cleanups'],
+            'lru_evictions': cache_stats['evictions'],
+            'ttl_seconds': config.RATES_CACHE_TTL,
+            'cleanup_interval_seconds': config.CACHE_CLEANUP_INTERVAL,
+            'status': 'healthy' if cache_stats['current_size'] <= cache_stats['max_size'] else 'warning'
+        }
+    
+    async def clear_cache(self) -> Dict[str, Any]:
+        """
+        Принудительная очистка кэша (для отладки memory leak)
+        РЕШЕНИЕ: Метод для очистки кэша в случае проблем
+        
+        Returns:
+            Результат операции очистки
+        """
+        old_stats = rates_cache.get_stats()
+        old_size = old_stats['current_size']
+        old_memory = old_stats['memory_usage_mb']
+        
+        rates_cache.clear()
+        
+        new_stats = rates_cache.get_stats()
+        
+        logger.info(
+            f"🧹 Cache CLEARED for FiatRatesService\n"
+            f"   ├─ Entries removed: {old_size}\n"
+            f"   ├─ Memory freed: {old_memory:.2f}MB\n"
+            f"   └─ New size: {new_stats['current_size']} entries"
+        )
+        
+        return {
+            'operation': 'cache_clear',
+            'timestamp': datetime.now().isoformat(),
+            'entries_removed': old_size,
+            'memory_freed_mb': old_memory,
+            'old_stats': old_stats,
+            'new_stats': new_stats
+        }
 
 
 # Глобальный экземпляр сервиса
