@@ -61,7 +61,13 @@ class FiatRatesService:
         self.session: Optional[aiohttp.ClientSession] = None
         self.base_url = config.API_LAYER_URL
         self.api_key = config.API_LAYER_KEY
-        self.timeout = aiohttp.ClientTimeout(total=30)
+        # OPTIMIZED timeout settings - TASK-PERF-002
+        self.timeout = aiohttp.ClientTimeout(
+            total=config.API_TIMEOUT,  # СОКРАЩЕНО: 10s total
+            connect=config.CONNECT_TIMEOUT,  # 5s connect
+            sock_connect=config.SOCK_CONNECT_TIMEOUT,  # 3s socket connect
+            sock_read=config.SOCK_READ_TIMEOUT  # 5s socket read
+        )
         self._rate_limit_delay = 1.0
         self._last_request_time = 0.0
         
@@ -89,13 +95,15 @@ class FiatRatesService:
                 'apikey': self.api_key  # APILayer использует apikey в header
             }
             
+            # OPTIMIZED Connection pooling settings - TASK-PERF-002
             connector = aiohttp.TCPConnector(
-                limit=50,
-                limit_per_host=20,
+                limit=config.CONNECTION_POOL_LIMIT // 2,  # 100 connections for APILayer
+                limit_per_host=config.CONNECTION_POOL_LIMIT_PER_HOST // 2,  # 25 per host
                 ttl_dns_cache=300,
                 use_dns_cache=True,
-                keepalive_timeout=30,
-                enable_cleanup_closed=True
+                keepalive_timeout=config.CONNECTION_KEEPALIVE_TIMEOUT,  # УВЕЛИЧЕНО: 60s
+                enable_cleanup_closed=True,
+                timeout_ceil_threshold=5  # Оптимизация для production
             )
             
             self.session = aiohttp.ClientSession(

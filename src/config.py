@@ -35,9 +35,28 @@ class Config:
     # Development Settings
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
     
-    # API Settings
-    API_TIMEOUT: int = int(os.getenv('API_TIMEOUT', '30'))
+    # API Settings - OPTIMIZED FOR TASK-PERF-002
+    API_TIMEOUT: int = int(os.getenv('API_TIMEOUT', '10'))  # СОКРАЩЕНО: с 30s до 10s
     API_RETRY_COUNT: int = int(os.getenv('API_RETRY_COUNT', '3'))
+    
+    # Connection Pool Settings - TASK-PERF-002 Performance Optimization
+    CONNECTION_POOL_LIMIT: int = int(os.getenv('CONNECTION_POOL_LIMIT', '200'))  # УВЕЛИЧЕНО: общий лимит
+    CONNECTION_POOL_LIMIT_PER_HOST: int = int(os.getenv('CONNECTION_POOL_LIMIT_PER_HOST', '50'))  # УВЕЛИЧЕНО: лимит на хост
+    CONNECTION_KEEPALIVE_TIMEOUT: int = int(os.getenv('CONNECTION_KEEPALIVE_TIMEOUT', '60'))  # УВЕЛИЧЕНО: keep-alive
+    
+    # Optimized Timeouts for Production - TASK-PERF-002
+    CONNECT_TIMEOUT: int = int(os.getenv('CONNECT_TIMEOUT', '5'))  # Таймаут подключения
+    SOCK_CONNECT_TIMEOUT: int = int(os.getenv('SOCK_CONNECT_TIMEOUT', '3'))  # Таймаут сокета
+    SOCK_READ_TIMEOUT: int = int(os.getenv('SOCK_READ_TIMEOUT', '5'))  # Таймаут чтения
+    
+    # Preloader Settings - TASK-PERF-002
+    PRELOADER_ENABLED: bool = os.getenv('PRELOADER_ENABLED', 'true').lower() == 'true'
+    PRELOADER_INTERVAL_CRITICAL: int = int(os.getenv('PRELOADER_INTERVAL_CRITICAL', '60'))  # 1 минута
+    PRELOADER_INTERVAL_POPULAR: int = int(os.getenv('PRELOADER_INTERVAL_POPULAR', '120'))  # 2 минуты
+    
+    # Circuit Breaker Settings - TASK-PERF-002
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = int(os.getenv('CIRCUIT_BREAKER_FAILURE_THRESHOLD', '5'))
+    CIRCUIT_BREAKER_RESET_TIMEOUT: int = int(os.getenv('CIRCUIT_BREAKER_RESET_TIMEOUT', '60'))  # 1 минута
     
     # Telegram Bot Settings - новые параметры для callback timeout fix
     CALLBACK_API_TIMEOUT: int = int(os.getenv('CALLBACK_API_TIMEOUT', '3'))  # Быстрые API запросы для callback

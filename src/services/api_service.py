@@ -45,7 +45,13 @@ class APIService:
         self.session: Optional[aiohttp.ClientSession] = None
         self.base_url = config.RAPIRA_API_URL
         self.api_key = config.RAPIRA_API_KEY
-        self.timeout = aiohttp.ClientTimeout(total=config.API_TIMEOUT)
+        # OPTIMIZED timeout settings - TASK-PERF-002
+        self.timeout = aiohttp.ClientTimeout(
+            total=config.API_TIMEOUT,  # СОКРАЩЕНО: 10s total
+            connect=config.CONNECT_TIMEOUT,  # 5s connect
+            sock_connect=config.SOCK_CONNECT_TIMEOUT,  # 3s socket connect
+            sock_read=config.SOCK_READ_TIMEOUT  # 5s socket read
+        )
         self._rate_limit_delay = 1.0  # Minimum delay between requests
         self._last_request_time = 0.0
         
@@ -74,14 +80,15 @@ class APIService:
             if self.api_key:
                 headers['Authorization'] = f'Bearer {self.api_key}'
             
-            # Connection pooling settings
+            # OPTIMIZED Connection pooling settings - TASK-PERF-002
             connector = aiohttp.TCPConnector(
-                limit=100,  # Total connection pool size
-                limit_per_host=30,  # Per-host connection limit
+                limit=config.CONNECTION_POOL_LIMIT,  # УВЕЛИЧЕНО: 200 total connections
+                limit_per_host=config.CONNECTION_POOL_LIMIT_PER_HOST,  # УВЕЛИЧЕНО: 50 per host
                 ttl_dns_cache=300,  # DNS cache TTL
                 use_dns_cache=True,
-                keepalive_timeout=30,
-                enable_cleanup_closed=True
+                keepalive_timeout=config.CONNECTION_KEEPALIVE_TIMEOUT,  # УВЕЛИЧЕНО: 60s keep-alive
+                enable_cleanup_closed=True,
+                timeout_ceil_threshold=5  # Оптимизация для production
             )
             
             self.session = aiohttp.ClientSession(

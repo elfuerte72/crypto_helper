@@ -27,6 +27,10 @@ from handlers.bot_handlers import margin_router
 # Import cache managers - РЕШЕНИЕ MEMORY LEAK
 from services.cache_manager import start_all_caches, stop_all_caches, get_all_cache_stats
 
+# Import unified API manager - TASK-PERF-002
+from services.unified_api_manager import unified_api_manager
+from services.rate_preloader import smart_preloader
+
 # Initialize logger
 logger = get_bot_logger()
 
@@ -93,6 +97,17 @@ async def main():
     logger.info("💾 Инициализация кэш-менеджеров...")
     await start_all_caches()
     
+    # Инициализация Unified API Manager - TASK-PERF-002
+    logger.info("🚀 Инициализация Unified API Manager...")
+    await unified_api_manager.start()
+    
+    # Запуск Smart Preloader - TASK-PERF-002
+    if config.PRELOADER_ENABLED:
+        logger.info("📦 Запуск предзагрузчика курсов...")
+        await smart_preloader.start(unified_api_manager)
+    else:
+        logger.info("⚠️ Предзагрузчик отключен в конфигурации")
+    
     # Логируем начальную статистику кэша
     cache_stats = get_all_cache_stats()
     logger.info(
@@ -110,6 +125,13 @@ async def main():
         logger.error(f"❌ Ошибка запуска бота: {e}")
         raise
     finally:
+        # Остановка сервисов - TASK-PERF-002
+        logger.info("⏹️ Остановка Smart Preloader...")
+        await smart_preloader.stop()
+        
+        logger.info("⏹️ Остановка Unified API Manager...")
+        await unified_api_manager.stop()
+        
         # Остановка кэш-менеджеров - ОБЯЗАТЕЛЬНО для предотвращения memory leak
         logger.info("📋 Остановка кэш-менеджеров...")
         await stop_all_caches()
